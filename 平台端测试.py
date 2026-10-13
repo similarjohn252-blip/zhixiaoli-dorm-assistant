@@ -1,0 +1,97 @@
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")   # 读脚本旁边的 .env，别写死绝对路径
+
+# -*- coding: utf-8 -*-
+"""平台端测试：只调用智小理平台的 API（和板子走的那条路完全一致），
+不启动任何本地服务、不写任何文件。
+
+跑法：E:\\Python\\python.exe E:\\天翼\\_平台测试.py
+"""
+import time
+
+import requests
+import urllib3
+
+urllib3.disable_warnings()
+
+URL = "https://aiagent.cqut.edu.cn:31134/v1/chat-messages"
+H = {"Authorization": "Bearer " + os.environ["ZHIXIAOLI_CLOUD_KEY"],
+     "Content-Type": "application/json"}
+
+# (用例, 问题, 期望的 device_action(None=不校验), 答复里必须出现的词(None=不校验), 是否禁止出现"查不到")
+CASES = [
+    ("知识库 · 校训", "咱们学校的校训是什么", None, "明德", True),
+    ("知识库 · 学生手册", "学生手册里对考试作弊是怎么规定的", None, None, True),
+    ("知识库 · 宿舍管理", "宿舍管理有什么要求", None, None, True),
+    ("业务 · 订会议室", "帮我订个会议室", "LED_GREEN_ON", None, False),
+    ("业务 · 查图书馆", "帮我查一下图书馆的开放时间", "LED_BLUE_ON", None, False),
+    ("业务 · 设闹钟", "帮我设个明天早上七点的闹钟", "LED_BLUE_ON", None, False),
+    ("闲聊 · 问候", "你好呀", "NONE", None, False),
+]
+
+
+def jparse(ans):
+    i = ans.rfind("{")
+    if i < 0:
+        return {}
+    try:
+        import json
+        return json.loads(ans[i:ans.rfind("}") + 1])
+    except Exception:
+        return {}
+
+
+def looks_broken(raw):
+    """平台"没把用户输入传给模型"的特征。"""
+    low = raw.lower()
+    return "null" in low and ("user input is" in low or "user message is" in low)
+
+
+print("=" * 96)
+print("平台端测试（走 API，与板子同一条路）")
+print("=" * 96)
+passed, failed = 0, 0
+for name, q, want_action, want_word, forbid_none in CASES:
+    t0 = time.time()
+    try:
+        r = requests.post(URL, headers=H, json={
+            "inputs": {"query": q}, "query": q,
+            "response_mode": "blocking", "user": "ptest"},
+            timeout=45, verify=False)
+        raw = r.json().get("answer", "") if r.status_code == 200 else r.text
+        j = jparse(raw)
+        vt, act = j.get("voice_text", ""), j.get("device_action", "")
+        dt = time.time() - t0
+
+        problems = []
+        if looks_broken(raw):
+            problems.append("模型收到的是 null（提示词变量没取到值）")
+        if not vt:
+            problems.append("没解析出 voice_text")
+        if want_action and act != want_action:
+            problems.append(f"动作期望 {want_action}，实际 {act}")
+        if want_word and want_word not in vt:
+            problems.append(f"答复里没有“{want_word}”")
+        if forbid_none and "查不到" in vt:
+            problems.append("答了“查不到”（知识库没检索到）")
+
+        ok = not problems
+        passed, failed = (passed + 1, failed) if ok else (passed, failed + 1)
+        print(f"\n[{'PASS' if ok else 'FAIL'}] {name}    HTTP {r.status_code}  {dt:.1f}s")
+        print(f"        问: {q}")
+        print(f"        答: {vt[:110] if vt else raw[:110]}")
+        print(f"        动作: {act}")
+        for p in problems:
+            print(f"        ⚠ {p}")
+    except Exception as e:
+        failed += 1
+        print(f"\n[FAIL] {name}    异常 {type(e).__name__}: {str(e)[:110]}")
+
+print()
+print("=" * 96)
+print(f"平台端汇总：通过 {passed} 项，失败 {failed} 项")
+print("=" * 96)

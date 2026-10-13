@@ -1,0 +1,17 @@
+.env
+secrets.h
+__pycache__/
+*.pyc
+语音/output.wav
+语音/output.mp3
+语音/mic_last.wav
+语音/access.log
+语音/music/
+code/记忆.json
+数据/*.db
+数据/*.db-wal
+数据/*.db-shm
+_备份_重构前/
+_材料/
+*.log
+语音/*.mp3
