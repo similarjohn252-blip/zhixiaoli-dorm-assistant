@@ -32,6 +32,7 @@ from server.config import (
     ACCESS_LOG, AUDIO_DIR, AUDIO_FILENAME, BAIDU_API_KEY, BAIDU_AUE,
     BAIDU_CHUNK, BAIDU_SECRET_KEY, BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY,
     CLOUD_MULTITURN, CLOUD_TIMEOUT, CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
+    HISTORY_TURNS, MEMORY_FILE, MEMORY_MAX_FACTS,
     MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
 )
 
@@ -275,13 +276,6 @@ def ask_cloud(query):
 # ================= 记忆 1：长期记忆（跨重启，存 记忆.json） =================
 # 为什么不用平台的 conversation_id 做记忆：实测平台的多轮 workflow 是坏的（带历史就 400）。
 # 所以记忆完全由我们自己管：把【已知信息 + 最近对话】拼进 query 一起发给平台，它照样能懂上下文。
-MEMORY_FILE = os.environ.get(
-    "ZHIXIAOLI_MEMORY_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "记忆.json"),
-)
-MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
-HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
-
 _memory = {"facts": [], "events": []}   # facts=长期已知信息，events=历史事件
 _history = []                           # 短期记忆：[(用户说的, 助手回的)]，只在内存里
 

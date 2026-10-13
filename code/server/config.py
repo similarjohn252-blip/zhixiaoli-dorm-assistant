@@ -64,3 +64,14 @@ MIC_LAST_WAV = os.path.join(AUDIO_DIR, "mic_last.wav")
 BAIDU_CHUNK = 60  # 百度短文本合成单次上限约 60 字，超长自动分段拼接
 
 os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# ---------------- 记忆 ----------------
+# ⚠️ 锚点用"项目根"，不要用 __file__ 所在目录：
+#    __file__ 会随文件搬家而变（本文件从 code\ 搬进 code\server\ 时，
+#    默认记忆路径会静默变成 code\server\记忆.json ✗）
+CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # → E:\天翼\code
+MEMORY_FILE = os.environ.get(
+    "ZHIXIAOLI_MEMORY_FILE",
+    os.path.join(CODE_DIR, "记忆.json"))
+MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
+HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
