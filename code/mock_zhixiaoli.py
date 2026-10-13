@@ -17,14 +17,10 @@
   2. TTS 失败不再影响文本回复：没合成出音频就只回文本，不带 audio_url。
   3. 开发服务器开 threaded=True：否则 ESP32 一边拉音频一边发新请求会互相阻塞。
 """
-import os                      # 已有
-from dotenv import load_dotenv  # 新增
-
-load_dotenv()                   # 新增：把 .env 里的值载进环境变量
+import os
 import asyncio
 import hashlib
 import json
-import os
 import re
 import time
 import traceback
@@ -32,64 +28,14 @@ import traceback
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 
+from server.config import (
+    ACCESS_LOG, AUDIO_DIR, AUDIO_FILENAME, BAIDU_API_KEY, BAIDU_AUE,
+    BAIDU_CHUNK, BAIDU_SECRET_KEY, BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY,
+    CLOUD_MULTITURN, CLOUD_TIMEOUT, CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
+    MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
+)
+
 app = Flask(__name__)
-
-# ================= 配置 =================
-# 大脑：cloud = 优先问智小理平台（失败自动回退本地规则，断网也能演示）/ local = 只用本地规则
-
-def require(name: str) -> str:
-    """读必需配置；缺了就立刻退出，而不是等运行时才炸。"""
-    v = os.environ.get(name)
-    if not v:
-        raise SystemExit(
-            f"[配置错误] 缺少必需环境变量 {name}；"
-            f"请在 E:\\天翼\\.env 中填写（可参考 .env.example）")
-    return v
-
-BRAIN = os.environ.get("ZHIXIAOLI_BRAIN", "cloud").lower()
-CLOUD_URL = os.environ.get("ZHIXIAOLI_CLOUD_URL",
-                           "https://aiagent.cqut.edu.cn:31134"
-                           "/v1/chat-messages")
-CLOUD_KEY = require("ZHIXIAOLI_CLOUD_KEY")
-CLOUD_USER = os.environ.get("ZHIXIAOLI_CLOUD_USER", "esp32_stu_001")
-CLOUD_TIMEOUT = float(os.environ.get("ZHIXIAOLI_CLOUD_TIMEOUT", "20"))
-# 是否把 conversation_id 交给平台（让平台自己记上下文）。
-# 默认 0 = 不交，上下文完全由我们自己拼。原因（实测）：平台自己那份历史是坏的
-#   —— 一长就 400；而且和我们注入的记忆叠在一起会互相打架，模型开始吐 </assistant><user> 这种模板标记。
-CLOUD_MULTITURN = os.environ.get("ZHIXIAOLI_CLOUD_MULTITURN", "0") == "1"
-# 这个应用用 GET /v1/parameters 查出来声明了一个必填输入变量 query（标签"语音识别文本"，
-# 上限 200 字）。预览界面会自动填上，走 API 就必须自己在 inputs 里传 —— 否则
-# 提示词/知识库检索节点引用它时拿到的是空值。所以这里按声明传，并做长度保护。
-CLOUD_INPUT_MAX = int(os.environ.get("ZHIXIAOLI_CLOUD_INPUT_MAX", "200"))
-# 校园平台的证书不一定被系统信任，默认不校验（要严格校验就设 ZHIXIAOLI_CLOUD_VERIFY=1）
-CLOUD_VERIFY = os.environ.get("ZHIXIAOLI_CLOUD_VERIFY", "0") == "1"
-if not CLOUD_VERIFY:
-    import urllib3
-    urllib3.disable_warnings()
-AUDIO_DIR = os.environ.get("ZHIXIAOLI_AUDIO_DIR", r"E:\天翼\语音")
-# 音频格式：wav（默认，aue=6，16kHz/单声道/16位 PCM）/ mp3（aue=3）
-# ESP32 端那个库对百度这种 MPEG2/16kHz 的 mp3 帧头可能认不出来，先吐 WAV 排除这一层。
-TTS_FORMAT = os.environ.get("ZHIXIAOLI_TTS_FORMAT", "wav").lower()
-BAIDU_AUE = 6 if TTS_FORMAT == "wav" else 3
-# 给 ESP32 的下载地址里用的 IP，必须是电脑的局域网 IP（手机热点下通常就是 192.168.137.1）
-PUBLIC_HOST = os.environ.get("ZHIXIAOLI_PUBLIC_HOST", "192.168.137.1")
-PUBLIC_PORT = int(os.environ.get("ZHIXIAOLI_PUBLIC_PORT", "5000"))
-PORT = int(os.environ.get("ZHIXIAOLI_PORT", "5000"))
-
-# TTS 后端：baidu（默认，实测可用）/ edge / 其他值=先百度失败再 edge
-TTS_ENGINE = os.environ.get("ZHIXIAOLI_TTS_ENGINE", "baidu").lower()
-
-# 百度语音合成 Key（沿用你 test_tts.py 里的那对）
-BAIDU_API_KEY = require("BAIDU_API_KEY")
-BAIDU_SECRET_KEY = require("BAIDU_SECRET_KEY")
-
-AUDIO_FILENAME = "output.wav" if TTS_FORMAT == "wav" else "output.mp3"
-ACCESS_LOG = os.path.join(AUDIO_DIR, "access.log")  # 谁在什么时候要了什么、服务端回了多少字节
-# ESP32 最近一次上传的录音，麦克风不对时直接听它
-MIC_LAST_WAV = os.path.join(AUDIO_DIR, "mic_last.wav")
-BAIDU_CHUNK = 60  # 百度短文本合成单次上限约 60 字，超长自动分段拼接
-
-os.makedirs(AUDIO_DIR, exist_ok=True)
 
 # 百度 access_token 缓存（有效期 30 天）
 _baidu_token = {"value": None, "expire_at": 0.0}
