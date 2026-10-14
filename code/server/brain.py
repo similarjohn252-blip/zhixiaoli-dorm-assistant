@@ -15,6 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
+from . import tickets
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -154,6 +155,44 @@ _ACTION_RULES = (
 _SCHOOL_WORDS = ("校训", "校区", "学校", "学院", "规章", "制度", "学生手册",
                  "宿舍", "食堂", "教务处", "辅导员", "校历", "校车", "图书馆")
 
+# ================= 报修工单（工程债 C1：把"假装办事"换成"真产出"）=================
+# 说明：这两组词只用来**决定走本地台账**，不用来判断"是不是宿舍问题"（那是提示词的活）
+_REPAIR_WORDS = ("报修", "维修", "修一下", "坏了", "漏水", "跳闸", "不亮", "堵了",
+                 "没热水", "停电", "没网", "打不开")
+# ⚠️ 故意**不**包含"处理"：否则"违规怎么处理"这类规定问题会被劫持成查工单 ✗
+_PROGRESS_WORDS = ("进度", "修好", "来人", "什么时候来", "多久能修", "单号", "工单",
+                   "修得怎么样", "修了吗")
+
+
+def _guess_room() -> str:
+    """从长期记忆里猜房间号（例如"用户住3 栋 502" → "3 栋 502"）。
+
+    为什么不问平台：房间号是我们自己记的事实（memory），问平台反而会编 ✗
+    ⚠️ 正则要允许**中间有空格**："3 栋 502" —— 上一版写成「栋后面不含空白」，
+       结果只截出"3 栋"、把 502 丢了（自测当场抓到 ✓）
+    """
+    for f in reversed(memory._memory.get("facts", [])):
+        m = re.search(r"(\d+\s*(?:栋|号楼|公寓|舍)\s*\d{0,4}|\d{3,5}\s*室?)", f or "")
+        if m:
+            return re.sub(r"\s+", " ", m.group(1)).strip()
+    return ""
+
+
+def _finish(query, reply, action, source):
+    """统一收尾：写记忆 + 合成音频 + 组装返回。
+
+    handle_query 的正常出口都走这里 —— 避免"新加一个分支就忘了记记忆/合成音频" ✗
+    """
+    memory.remember_turn(query, reply)
+    return {
+        "voice_text": reply,
+        "device_action": action,
+        "source": source,
+        "audio_url": make_tts(reply),
+        "memory": len(memory._memory["facts"]),
+        "history": len(memory._history),
+    }
+
 
 def _action_guard(query, reply, action):
     """返回 (reply, action, source_override)。平台没办事时本地兜底，正常时原样返回。"""
@@ -199,7 +238,29 @@ def handle_query(query):
     for fact in memory.extract_facts(query):
         memory.add_fact(fact)
 
-    # 2) 放歌类请求单独走音乐分支：云端给不了音频
+    # 2) 先判"问报修进度" —— **必须排在报修前面** ✗
+    #    否则"我报修的进度怎么样了"会因为含"报修"两个字被当成新报修，
+    #    凭空多建一张垃圾工单，进度还查成了那张新的（烟测实测踩到 ✓）
+    if any(w in query for w in _PROGRESS_WORDS):
+        t = tickets.newest()
+        if t is not None:
+            room = f"，{t['room']}" if t["room"] else ""
+            reply = (f"你的报修单 {t['id']}（{t['category']}{room}）现在是"
+                     f"「{tickets.status_text(t['status'])}」。")
+            return _finish(query, reply, tickets.action_for(t["status"]), "本地台账")
+
+    # 3) 报修 → **真的建一张工单**（工程债 C1：把"假装办事"换成"真产出"）
+    #    注意：这一支**不提前返回** —— 答案措辞仍交给平台（它说得更自然），
+    #    我们只负责"真建单"，最后把**真实工单号**补进回答 ✓
+    repair_ticket = None
+    if any(w in query for w in _REPAIR_WORDS):
+        repair_ticket = tickets.create(room=_guess_room(),
+                                       category=tickets.guess_category(query),
+                                       note=query)
+        print(f"[工单] 新建 {repair_ticket['id']} 房间={repair_ticket['room'] or '未登记'} "
+              f"类别={repair_ticket['category']}", flush=True)
+
+    # 4) 放歌类请求单独走音乐分支：云端给不了音频
     if MUSIC_ENABLE:
         song, strict = music_request(query)
         if song is not None:
@@ -207,7 +268,7 @@ def handle_query(query):
             if result is not None:
                 return result            # None = 宽松匹配又搜不到，下面交给云端
 
-    # 3) 带着【已知信息 + 最近对话】去问大脑
+    # 5) 带着【已知信息 + 最近对话】去问大脑
     enriched = memory.build_query(query)
     if BRAIN == "local":
         reply, action = local_reply(query)
@@ -225,17 +286,11 @@ def handle_query(query):
             reply, action = local_reply(query)
             source = "本地回退"
 
-    # 4) 记下这一轮（短期记忆 + 历史事件）
-    memory.remember_turn(query, reply)
+    # 6) 这一轮如果是报修，把**真实工单号**补进回答，并把动作钉成"受理"= 绿灯
+    if repair_ticket:
+        reply = (f"{reply}（工单号 {repair_ticket['id']}，{repair_ticket['category']}，"
+                 f"{tickets.status_text(repair_ticket['status'])}）")
+        action = "LED_GREEN_ON"
+        source = f"{source}·建单"
 
-    # 5) 生成音频：失败只记日志，绝不影响这次响应
-    audio_url = make_tts(reply)
-
-    return {
-        "voice_text": reply,
-        "device_action": action,
-        "source": source,
-        "audio_url": audio_url,
-        "memory": len(memory._memory["facts"]),     # 长期记忆条数（给屏幕显示）
-        "history": len(memory._history),            # 本轮带上的上下文轮数
-    }
+    return _finish(query, reply, action, source)

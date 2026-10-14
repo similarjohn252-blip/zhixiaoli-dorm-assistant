@@ -17,7 +17,7 @@ import traceback
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from . import brain, device, memory
+from . import brain, device, memory, tickets
 
 from .brain import handle_query
 
@@ -222,6 +222,39 @@ def health():
         "auth": "on" if API_TOKEN else "off",
         "checks": checks,
     }), 200
+
+
+# ================= 报修工单台账（工程债 C1）=================
+# 说"我们宿舍的灯坏了" → /v1/chat 会**真的建一张工单**，并把工单号写进回答 ✓
+# 这几个接口是给"网页 / 答辩时当场看台账"用的 —— 用来证明"这是真数据，不是话术" ✓
+@app.route("/v1/tickets", methods=["GET", "POST"])
+def tickets_api():
+    if request.method == "POST":
+        d = request.get_json(silent=True, force=True) or {}
+        t = tickets.create(room=str(d.get("room", "") or ""),
+                           category=str(d.get("category", "") or ""),
+                           note=str(d.get("note", "") or ""))
+        return jsonify(t), 200
+    return jsonify({"tickets": tickets.latest(20),
+                    "stats": tickets.stats(),
+                    "status_text": tickets.STATUS_TEXT}), 200
+
+
+@app.route("/v1/tickets/<tid>", methods=["GET", "POST"])
+def ticket_one(tid):
+    if request.method == "POST":
+        d = request.get_json(silent=True, force=True) or {}
+        ok = tickets.set_status(tid, str(d.get("status", "") or ""))
+        return jsonify({"ok": ok, "ticket": tickets.get(tid),
+                        "valid_status": list(tickets.VALID_STATUS)}), 200
+    t = tickets.get(tid)
+    return jsonify(t or {"ok": False, "error": "没有这张工单"}), 200
+
+
+@app.route("/v1/tickets/clear", methods=["POST"])
+def tickets_clear():
+    """一键清空工单台账（隐私承诺 C4：能当场演示"说清就清"）。"""
+    return jsonify({"ok": True, "cleared": tickets.clear_all()}), 200
 
 
 @app.route("/audio/<path:filename>")

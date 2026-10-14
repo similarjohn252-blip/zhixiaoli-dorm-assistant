@@ -76,6 +76,12 @@ MEMORY_FILE = os.environ.get(
 MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
 HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
 
+# ---------------- 报修工单台账（SQLite）----------------
+# 为什么用 SQLite：标准库自带、零依赖、有并发保护（WAL 模式），比裸 JSON 可靠 ✓
+TICKETS_DB = os.environ.get(
+    "ZHIXIAOLI_TICKETS_DB",
+    os.path.join(CODE_DIR, "工单.db"))
+
 # ---------------- 板子（ESP32）与网页代理 ----------------
 # 只有服务端需要知道板子的地址：网页通过 /v1/device/* 代理访问（见 device.py）
 BOARD_HOST = os.environ.get("ZHIXIAOLI_BOARD_HOST", "192.168.137.39")

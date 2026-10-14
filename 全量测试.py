@@ -97,6 +97,8 @@ def start_server():
         "ZHIXIAOLI_PUBLIC_PORT": "5010",
         "ZHIXIAOLI_AUDIO_DIR": AUDIO,
         "ZHIXIAOLI_MEMORY_FILE": os.path.join(AUDIO, "记忆.json"),
+        # 工单台账也必须隔离 ✗ —— 否则测试会往**真实台账**里塞垃圾工单
+        "ZHIXIAOLI_TICKETS_DB": os.path.join(AUDIO, "工单.db"),
         # 子进程 stdout 强制 UTF-8，否则 server.log 会写成乱码，排障时读不了
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
@@ -283,6 +285,32 @@ if start_server():
         ask_local("/v1/memory/clear")
     except Exception as e:
         rec("memory · 接口", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
+
+    # ---- 报修工单（C1：真工单，不是话术）----
+    try:
+        tk = requests.get(LOCAL + "/v1/tickets", timeout=15).json()
+        rec("ticket · 台账可读", "tickets" in tk and "stats" in tk,
+            f"{len(tk.get('tickets') or [])} 张 stats={tk.get('stats')}")
+
+        c = ask_local("/v1/chat", {"query": "我们宿舍的灯坏了，要报修"}).json()
+        rec("ticket · 报修回答带真实工单号", "BX" in (c.get("voice_text") or ""),
+            (c.get("voice_text") or "")[-40:])
+
+        n1 = len(requests.get(LOCAL + "/v1/tickets", timeout=10).json()
+                 .get("tickets") or [])
+        ask_local("/v1/chat", {"query": "那明天能来人修吗"})
+        n2 = len(requests.get(LOCAL + "/v1/tickets", timeout=10).json()
+                 .get("tickets") or [])
+        rec("ticket · 问进度不新建工单（回归护栏）", n1 == n2, f"{n1} → {n2}")
+
+        tid = ((requests.get(LOCAL + "/v1/tickets", timeout=10).json()
+                .get("tickets") or [{}])[0]).get("id")
+        if tid:
+            s = ask_local(f"/v1/tickets/{tid}", {"status": "doing"}).json()
+            rec("ticket · 改状态并回读", s.get("ok") is True,
+                str((s.get("ticket") or {}).get("status")))
+    except Exception as e:
+        rec("ticket · 工单链路", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
 
     # ---- 设备代理：网页不直连板子，改走 /v1/device/*（文档第 11 节）----
     # 断言只看"结构"，不要求板子一定在线 —— 否则这条测试会随硬件在场与否而时好时坏 ✗
