@@ -194,6 +194,17 @@ void setup() {
     server.on("/volume", HTTP_POST, []() {
         String body = server.arg("plain");
         Serial.println("【网页收到音量控制】: " + body);
+        // 真正应用音量：解析 {"volume": n}
+        // 取值范围 0~21（音频库默认 21 档；固件原本写死的 18 就在这个范围里）
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, body);
+        if (!err && doc["volume"].is<int>()) {
+            int v = constrain(doc["volume"].as<int>(), 0, 21);
+            audio.setVolume((uint8_t)v);
+            Serial.printf("【音量已设为 %d】\n", audio.getVolume());
+        } else {
+            Serial.println("【音量未改动】body 不是合法 JSON 或缺 volume 字段");
+        }
         server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
     server.on("/status", HTTP_GET, []() {
