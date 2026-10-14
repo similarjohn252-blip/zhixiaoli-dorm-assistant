@@ -32,6 +32,14 @@ from .speech import baidu_asr
 
 app = Flask(__name__)
 
+# JSON 里的中文**不要**转成 \u62a5\u544a… —— 实测：手机打开 /v1/health 满屏转义码，
+# 解析虽然不受影响，但评委/队友直接开 URL 看时可读性很差 ✗（两种写法都给上，兼容新旧 Flask）
+try:
+    app.json.ensure_ascii = False        # Flask ≥ 2.3
+except Exception:
+    pass
+app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无害 ✓）
+
 _BOOT_TS = time.time()          # 给 /v1/health 算运行时长
 
 # ================= 可选鉴权（部署到公网前必须开）=================
