@@ -431,6 +431,7 @@ void handleServerResponse(String response) {
 
     Serial.println("【语音播报内容】: " + voiceText);
     Serial.println("【硬件控制指令】: " + deviceAction);
+    ledSet(deviceAction);   // ← 真实点灯（C2）：绿=已受理 / 蓝=处理中 / 红=警示
 
     oledReply = voiceText;
     oledStale = false;   // 这一轮真的成功了，标签恢复成"听到/回复"
@@ -681,4 +682,26 @@ void sendToZhiXiaoLi(String userQuery) {
         Serial.println(httpResponseCode);
     }
     http.end();
+}
+
+// ================= 三颗 LED：真实硬件动作（工程债 C2）=================
+// 语义：绿 = 已受理 / 蓝 = 处理中 / 红 = 警示
+//       NONE = 全灭（这一轮没有硬件动作） / PLAY_MUSIC = 不动灯（保留上一状态）
+// 接线：GPIO --(220Ω 电阻；蓝灯建议 100Ω)--> LED 长脚(阳极)；LED 短脚(阴极) --> GND
+// ⚠️ 引脚号按你实际接线改这三行即可；避开 IO33~37（本板 N16R8 的 OPI PSRAM 占用）
+#define LED_GREEN_PIN 4
+#define LED_BLUE_PIN  12
+#define LED_RED_PIN   13
+
+void ledSet(const String &action) {
+    // 每次都设一遍 pinMode：幂等、无害，顺便省掉"忘了在 setup 里初始化"的风险 ✓
+    pinMode(LED_GREEN_PIN, OUTPUT);
+    pinMode(LED_BLUE_PIN, OUTPUT);
+    pinMode(LED_RED_PIN, OUTPUT);
+
+    if (action == "PLAY_MUSIC") return;   // 放歌不动灯
+
+    digitalWrite(LED_GREEN_PIN, action == "LED_GREEN_ON" ? HIGH : LOW);
+    digitalWrite(LED_BLUE_PIN,  action == "LED_BLUE_ON"  ? HIGH : LOW);
+    digitalWrite(LED_RED_PIN,   action == "LED_RED_ON"   ? HIGH : LOW);
 }
