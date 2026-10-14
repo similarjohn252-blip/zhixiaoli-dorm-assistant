@@ -4,6 +4,7 @@
 换网络 / 换端口 / 换音频格式，只改 .env，不改任何业务代码。
 """
 import os
+import time
 
 from dotenv import load_dotenv
 
@@ -74,3 +75,38 @@ MEMORY_FILE = os.environ.get(
     os.path.join(CODE_DIR, "记忆.json"))
 MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
 HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
+
+# ---------------- 板子（ESP32）与网页代理 ----------------
+# 只有服务端需要知道板子的地址：网页通过 /v1/device/* 代理访问（见 device.py）
+BOARD_HOST = os.environ.get("ZHIXIAOLI_BOARD_HOST", "192.168.137.39")
+BOARD_TIMEOUT = float(os.environ.get("ZHIXIAOLI_BOARD_TIMEOUT", "4"))
+
+# 可选鉴权：留空 = 不启用（局域网演示的默认状态）。
+# ⚠️ 部署到公网/校园网可达处之前必须填一个随机串 —— 这是本项目的硬约束（工程债指南 D4）
+API_TOKEN = os.environ.get("ZHIXIAOLI_API_TOKEN", "").strip()
+
+# ---------------- 进程自报（给网页与排障用）----------------
+# 为什么要自报：改完代码忘了重启 Flask，从外面完全看不出来 ✗
+# （本项目真实踩过：追了半小时的"服务端坏了"，其实是旧进程在跑）
+STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _code_version() -> str:
+    """取 git 短 hash；直接读 .git，不起子进程（快，且受限环境里也能用）。
+
+    取不到（不是 git 仓库 / 权限问题）就返回 unknown —— 绝不抛异常 ✗
+    """
+    try:
+        root = os.path.dirname(CODE_DIR)          # E:\天翼\code → E:\天翼
+        with open(os.path.join(root, ".git", "HEAD"), encoding="utf-8") as f:
+            head = f.read().strip()
+        if head.startswith("ref:"):
+            ref = head.split(" ", 1)[1].strip()
+            with open(os.path.join(root, ".git", ref), encoding="utf-8") as f:
+                return f.read().strip()[:7]
+        return head[:7]
+    except Exception:
+        return "unknown"
+
+
+CODE_VERSION = _code_version()

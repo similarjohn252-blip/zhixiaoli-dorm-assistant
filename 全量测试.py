@@ -283,6 +283,45 @@ if start_server():
         ask_local("/v1/memory/clear")
     except Exception as e:
         rec("memory · 接口", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
+
+    # ---- 设备代理：网页不直连板子，改走 /v1/device/*（文档第 11 节）----
+    # 断言只看"结构"，不要求板子一定在线 —— 否则这条测试会随硬件在场与否而时好时坏 ✗
+    try:
+        d = requests.get(LOCAL + "/v1/device/status", timeout=15).json()
+        rec("device · 状态代理", "online" in d,
+            f"online={d.get('online')} {d.get('error') or d.get('detail')}")
+        v = requests.get(LOCAL + "/v1/device/volume", timeout=15).json()
+        rec("device · 读音量代理", ("volume" in v) or ("ok" in v),
+            f"volume={v.get('volume')} steps={v.get('steps')} {v.get('error', '')}")
+        w2 = ask_local("/v1/device/volume", {"volume": 15}).json()
+        rec("device · 写音量代理", "ok" in w2,
+            f"ok={w2.get('ok')} volume={w2.get('volume')} {w2.get('error', '')}")
+        p = ask_local("/v1/device/profile", {"name": "回归", "room": "3 栋 502"}).json()
+        rec("device · 个人信息代理", "ok" in p, f"ok={p.get('ok')} {p.get('error', '')}")
+    except Exception as e:
+        rec("device · 代理接口", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
+
+    # ---- 健康自检 + 版本自报（演示前一条命令看能不能上台）----
+    try:
+        h = requests.get(LOCAL + "/v1/health", timeout=15).json()
+        rec("health · 结构完整",
+            all(k in h for k in ("ok", "version", "checks")),
+            f"ok={h.get('ok')} 版本={h.get('version')} "
+            f"检查项={list((h.get('checks') or {}).keys())}")
+        rec("health · 自报版本",
+            bool(h.get("version")) and h.get("version") != "unknown",
+            f"版本={h.get('version')} 启动={h.get('started_at')} uptime={h.get('uptime_s')}s")
+    except Exception as e:
+        rec("health · 健康自检", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
+
+    # ---- 兼容性护栏：老字段一字不变地还能用（我们对前端的承诺，文档 10.1 铁律 1）----
+    try:
+        c = ask_local("/v1/chat", {"query": "你好呀"}).json()
+        rec("兼容 · /v1/chat 字段未变",
+            all(k in c for k in ("voice_text", "device_action", "source", "audio_url")),
+            f"字段={sorted(c.keys())}")
+    except Exception as e:
+        rec("兼容 · /v1/chat", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
 else:
     # 起不来时直接把日志末尾打出来，省掉"你去翻日志"这一步
     try:

@@ -5,19 +5,25 @@
   POST /v1/voice      收 ESP32 上传的 WAV，一次完成 识别→意图→合成
   POST /v1/asr        只做语音识别，方便在电脑上单独验证一段音频
   GET  /audio/<file>  给 ESP32 下载音频
+  ---- 给网页用的（见 网页前端_对接文档.md 第 11 节）----
+  GET      /v1/device/status    板子在线吗（服务端代理，网页不直连板子的私有地址）
+  GET/POST /v1/device/volume    读 / 写板子音量
+  POST     /v1/device/profile   把网页填的个人信息转给板子
+  GET      /v1/health           健康自检 + 版本号（演示前一条命令看能不能上台）
 """
+import os
 import time
 import traceback
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from . import brain, memory
+from . import brain, device, memory
 
 from .brain import handle_query
 
 from .config import (
-    ACCESS_LOG, AUDIO_DIR, MEMORY_FILE,
-    MIC_LAST_WAV,
+    ACCESS_LOG, API_TOKEN, AUDIO_DIR, BOARD_HOST, CODE_VERSION, MEMORY_FILE,
+    MIC_LAST_WAV, STARTED_AT,
 )
 from .music import (
     handle_music, music_request,
@@ -25,6 +31,26 @@ from .music import (
 from .speech import baidu_asr
 
 app = Flask(__name__)
+
+_BOOT_TS = time.time()          # 给 /v1/health 算运行时长
+
+# ================= 可选鉴权（部署到公网前必须开）=================
+# 只保护"会动硬件 / 涉及隐私"的接口；/v1/chat、/v1/voice、/audio **保持开放**：
+# 板子固件里没有 token，评委的网页也要用它们 —— 拦了就演示不了 ✗
+_PROTECTED_PREFIXES = ("/v1/device/", "/v1/memory")
+
+
+@app.before_request
+def _check_token():
+    if not API_TOKEN:
+        return None                 # 未配置 = 不启用（局域网演示的默认状态）
+    path = request.path or ""
+    if not any(path.startswith(p) for p in _PROTECTED_PREFIXES):
+        return None
+    got = (request.headers.get("Authorization") or "").replace("Bearer", "").strip()
+    if got != API_TOKEN:
+        return jsonify({"ok": False, "error": "未授权：token 缺失或不正确"}), 401
+    return None
 
 # ================= 路由 =================
 @app.route("/v1/chat", methods=["POST"])
@@ -129,6 +155,73 @@ def music_api():
         result = {"voice_text": f"“{term}”没搜到歌曲",
                   "device_action": "NONE", "source": "音乐"}
     return jsonify(result), 200
+
+
+# ================= 设备代理（网页不直连板子的私有地址）=================
+# 为什么需要：网页部署到"评委能访问的地方"后，和板子就不在同一网络了 ✗
+# 私有地址 192.168.137.x 跨网不可达 → 统一由服务端转发（详见 device.py）
+# 子路径与板子**完全一致**，所以前端只要把 base 换成 <服务端>/v1/device 即可 ✓
+@app.route("/v1/device/status", methods=["GET"])
+def device_status():
+    return jsonify(device.board_status()), 200
+
+
+@app.route("/v1/device/volume", methods=["GET", "POST"])
+def device_volume():
+    if request.method == "GET":
+        return jsonify(device.board_volume_get()), 200
+    data = request.get_json(silent=True, force=True) or {}
+    return jsonify(device.board_volume_set(data.get("volume"))), 200
+
+
+@app.route("/v1/device/profile", methods=["POST"])
+def device_profile():
+    data = request.get_json(silent=True, force=True) or {}
+    return jsonify(device.board_profile(str(data.get("name", "") or ""),
+                                        str(data.get("room", "") or ""))), 200
+
+
+# ================= 健康自检（演示前一条命令看能不能上台）=================
+@app.route("/v1/health", methods=["GET"])
+def health():
+    checks = {}
+
+    b = device.board_status()
+    checks["board"] = {"ok": bool(b.get("online")),
+                       "detail": b.get("error") or "在线"}
+
+    # 云端：只报告服务端记录的降级状态，**不主动发请求**（避免消耗额度）
+    degraded = bool(brain._cloud_state.get("degraded"))
+    checked = brain._cloud_state.get("checked_at") or 0
+    checks["cloud"] = {
+        "ok": not degraded, "degraded": degraded,
+        "last_check_s": round(time.time() - checked, 1) if checked else None,
+        "note": "报告服务端记录的平台状态，不主动请求（省额度）"}
+
+    try:
+        probe = os.path.join(AUDIO_DIR, ".health_probe")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe)
+        checks["disk"] = {"ok": True, "dir": AUDIO_DIR}
+    except Exception as e:
+        checks["disk"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    checks["memory"] = {"ok": True, "file": MEMORY_FILE,
+                        "exists": os.path.exists(MEMORY_FILE),
+                        "facts": len(memory._memory.get("facts", []))}
+
+    critical = [k for k in ("disk", "memory", "cloud") if not checks[k]["ok"]]
+    return jsonify({
+        "ok": not critical,
+        "failing": critical,
+        "version": CODE_VERSION,
+        "started_at": STARTED_AT,
+        "uptime_s": round(time.time() - _BOOT_TS, 1),
+        "board_host": BOARD_HOST,
+        "auth": "on" if API_TOKEN else "off",
+        "checks": checks,
+    }), 200
 
 
 @app.route("/audio/<path:filename>")
