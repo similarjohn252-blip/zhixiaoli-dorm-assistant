@@ -164,9 +164,15 @@ void setup() {
 
     //   音量：默认步数 21，曲线 dB = -112t³ + 172t² - 60（t = vol/21）
     //     vol=5 -> -52 dB（几乎无声）  vol=15 -> -13 dB  vol=18 -> -4 dB  vol=21 -> 0 dB
-    audio.setVolume((uint8_t)constrain(prefs.getInt("volume", DEFAULT_VOLUME), 0, 21));
-    Serial.printf("音量: %u / %u（网页设置过就记住，重启不忘）\n",
-                  audio.getVolume(), audio.getVolumeSteps());
+    //   ⚠️ 必须先用 prefs.begin() 打开命名空间：
+    //      否则 getInt 静默返回默认值、putInt 静默失败（不报错！表现就是"设置生效、重启就忘"）
+    bool nvsOk = prefs.begin("zhixiaoli", false);
+    int bootVol = nvsOk ? (int)prefs.getInt("volume", DEFAULT_VOLUME)
+                        : (int)DEFAULT_VOLUME;
+    audio.setVolume((uint8_t)constrain(bootVol, 0, 21));
+    Serial.printf("音量: %u / %u（NVS %s；网页设置过就记住）\n",
+                  audio.getVolume(), audio.getVolumeSteps(),
+                  nvsOk ? "已打开" : "打开失败 ✗");
 
     // 2. 初始化麦克风（和功放互不干扰的第二个 I2S 通道）
     bool micOk = micInit();
@@ -203,6 +209,13 @@ void setup() {
         String body = server.arg("plain");
         Serial.println("【网页收到个人信息】: " + body);
         server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    // 读当前音量（不改变任何东西）：浏览器/命令行随时能看
+    server.on("/volume", HTTP_GET, []() {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "{\"volume\":%u,\"steps\":%u}",
+                 audio.getVolume(), audio.getVolumeSteps());
+        server.send(200, "application/json", buf);
     });
     server.on("/volume", HTTP_POST, []() {
         String body = server.arg("plain");
