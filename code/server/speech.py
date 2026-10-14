@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """语音出入口：百度 TTS / edge-tts 兜底 / 百度 ASR（三者共用一份 access_token 缓存）。"""
 import asyncio
 import time

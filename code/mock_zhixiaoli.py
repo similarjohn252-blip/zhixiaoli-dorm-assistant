@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 智小理 · 本地保底服务（Flask）
 
@@ -18,8 +17,6 @@
   3. 开发服务器开 threaded=True：否则 ESP32 一边拉音频一边发新请求会互相阻塞。
 """
 import os
-import asyncio
-import hashlib
 import json
 import re
 import time
@@ -29,11 +26,9 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 
 from server.config import (
-    ACCESS_LOG, AUDIO_DIR, AUDIO_FILENAME, BAIDU_API_KEY, BAIDU_AUE,
-    BAIDU_CHUNK, BAIDU_SECRET_KEY, BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY,
+    ACCESS_LOG, AUDIO_DIR, BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY,
     CLOUD_MULTITURN, CLOUD_TIMEOUT, CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
-    HISTORY_TURNS, MEMORY_FILE, MEMORY_MAX_FACTS,
-    MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
+    HISTORY_TURNS, MEMORY_FILE, MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
 )
 
 from server.music import (
@@ -42,7 +37,7 @@ from server.music import (
 )
 
 from server import memory
-from server.speech import baidu_asr, synthesize
+from server.speech import baidu_asr
 
 app = Flask(__name__)
 
