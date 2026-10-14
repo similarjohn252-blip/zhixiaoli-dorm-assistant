@@ -224,6 +224,15 @@ void setup() {
     server.on("/status", HTTP_GET, []() {
         server.send(200, "application/json", "{\"status\":\"online\"}");
     });
+    // CORS 预检：网页用 fetch 发 POST(application/json) 之前，浏览器会先发一个 OPTIONS，
+    // 它必须拿到 2xx，否则浏览器直接拦掉 POST（板子根本收不到 ✗）。
+    // 注意：核心的 enableCORS(true) 只负责加响应头，不处理 OPTIONS —— 实测预检返回 404 ✗
+    server.on("/profile", HTTP_OPTIONS, []() {
+        server.send(200, "application/json", "{}");
+    });
+    server.on("/volume", HTTP_OPTIONS, []() {
+        server.send(200, "application/json", "{}");
+    });
     server.begin();
     server.enableCORS(true);   // 允许网页跨源 fetch（否则浏览器会拦掉 POST，板子根本收不到）
     Serial.println("WebServer 已启动，端口 80（已开 CORS）");
