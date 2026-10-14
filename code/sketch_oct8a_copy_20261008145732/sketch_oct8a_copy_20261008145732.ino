@@ -6,6 +6,10 @@
 #include "driver/i2s_std.h" // 麦克风走独立的 I2S 输入通道（IDF 5.x 新 API）
 #include <Wire.h>           // SSD1306 走硬件 I2C
 #include <U8g2lib.h>        // OLED 驱动 + 中文字库
+#include <WebServer.h>      // 给网页一个入口：POST /profile、POST /volume、GET /status
+
+// ================= 全局对象 =================
+WebServer server(80);       // 网页数据入口（端口 80）
 
 // ================= 配置区域 =================
 // 网络凭据与服务器地址在 secrets.h 里（.gitignore 已排除，不入库）
@@ -182,6 +186,21 @@ void setup() {
     }
     Serial.println("\nWi-Fi 连接成功!");
     Serial.printf("本机 IP: %s\n", WiFi.localIP().toString().c_str());
+    server.on("/profile", HTTP_POST, []() {
+        String body = server.arg("plain");
+        Serial.println("【网页收到个人信息】: " + body);
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    server.on("/volume", HTTP_POST, []() {
+        String body = server.arg("plain");
+        Serial.println("【网页收到音量控制】: " + body);
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    server.on("/status", HTTP_GET, []() {
+        server.send(200, "application/json", "{\"status\":\"online\"}");
+    });
+    server.begin();
+    Serial.println("WebServer 已启动，端口 80");
     oledStatus = "待机 按 BOOT 说话";
     oledFoot   = "IP " + WiFi.localIP().toString();
     oledRefresh(true);
@@ -191,6 +210,9 @@ void loop() {
     // 【核心】必须一直、尽快地调用 audio.loop()，否则网络音频会卡顿/断续。
     // 原来这里写 delay(15000)，等于每 15 秒把喂音频数据的节奏一起卡死，所以改成非阻塞计时。
     audio.loop();
+
+    // 【网页入口】非阻塞，尽量放在 audio.loop() 之后，别抢音频喂数据的节奏。
+    server.handleClient();
 
     // 播放状态每秒报一次。重点看「播放进度」有没有在往前走：
     //   进度在涨   -> 解码器确实在吐 PCM，问题只剩功放/喇叭侧
