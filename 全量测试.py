@@ -19,7 +19,6 @@ load_dotenv(Path(__file__).resolve().parent / ".env")   # 读脚本旁边的 .en
   5) 编译一遍固件，确认没改坏
   6) 打印汇总，并把临时服务端关掉
 """
-import os
 import subprocess
 import sys
 import tempfile

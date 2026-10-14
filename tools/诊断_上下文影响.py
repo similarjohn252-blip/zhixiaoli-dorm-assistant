@@ -6,9 +6,7 @@
 用法：E:\\Python\\python.exe tools\\诊断_上下文影响.py --order
 """
 import json
-import os
 import re
-import sys
 
 import requests
 import urllib3

@@ -12,7 +12,6 @@
 """
 import ast
 import builtins
-import os
 import re
 import sys
 
