@@ -56,7 +56,31 @@ def looks_broken(raw):
 print("=" * 96)
 print("平台端测试（走 API，与板子同一条路）")
 print("=" * 96)
-passed, failed = 0, 0
+def run_case(q, want_action, want_word, forbid_none):
+    """跑一次用例，返回 (问题列表, voice_text, device_action, HTTP码, 耗时)。"""
+    t0 = time.time()
+    r = requests.post(URL, headers=H, json={
+        "inputs": {"query": q}, "query": q,
+        "response_mode": "blocking", "user": "ptest"},
+        timeout=45, verify=False)
+    raw = r.json().get("answer", "") if r.status_code == 200 else r.text
+    j = jparse(raw)
+    vt, act = j.get("voice_text", ""), j.get("device_action", "")
+    problems = []
+    if looks_broken(raw):
+        problems.append("模型收到的是 null（提示词变量没取到值）")
+    if not vt:
+        problems.append("没解析出 voice_text")
+    if want_action and act != want_action:
+        problems.append(f"动作期望 {want_action}，实际 {act}")
+    if want_word and want_word not in vt:
+        problems.append(f"答复里没有“{want_word}”")
+    if forbid_none and "查不到" in vt:
+        problems.append("答了“查不到”（知识库没检索到）")
+    return problems, vt, act, r.status_code, time.time() - t0
+
+
+passed, failed, flaky = 0, 0, 0
 for name, q, want_action, want_word, forbid_none in CASES:
     t0 = time.time()
     try:
@@ -81,9 +105,22 @@ for name, q, want_action, want_word, forbid_none in CASES:
         if forbid_none and "查不到" in vt:
             problems.append("答了“查不到”（知识库没检索到）")
 
+        was_flaky = False
+        if problems:
+            # 平台侧的模型与检索都有随机性 → 失败先重试一次，但把"偶发"**显式标注**出来：
+            # 既不掩盖问题（同一句反复偶发就该加固知识库），也不让偶发红灯干扰判断。
+            # 判据：重试才过 = 偶发；两次都挂同一处 = 必现，必须改提示词或知识库。
+            time.sleep(1.0)
+            problems, vt, act, code, dt = run_case(q, want_action, want_word,
+                                                   forbid_none)
+            was_flaky = True
+            if not problems:
+                flaky += 1
+
         ok = not problems
         passed, failed = (passed + 1, failed) if ok else (passed, failed + 1)
-        print(f"\n[{'PASS' if ok else 'FAIL'}] {name}    HTTP {r.status_code}  {dt:.1f}s")
+        tag = "PASS（偶发：第 2 次才过）" if (ok and was_flaky) else ("PASS" if ok else "FAIL")
+        print(f"\n[{tag}] {name}    HTTP {r.status_code}  {dt:.1f}s")
         print(f"        问: {q}")
         print(f"        答: {vt[:110] if vt else raw[:110]}")
         print(f"        动作: {act}")
@@ -95,5 +132,7 @@ for name, q, want_action, want_word, forbid_none in CASES:
 
 print()
 print("=" * 96)
-print(f"平台端汇总：通过 {passed} 项，失败 {failed} 项")
+print(f"平台端汇总：通过 {passed} 项，失败 {failed} 项，其中偶发 {flaky} 项（重试才过）")
+if flaky:
+    print("提示：偶发＝平台侧检索/模型有随机性。同一句反复偶发，就该加固知识库（补文件 / 调 TopK）")
 print("=" * 96)

@@ -90,8 +90,18 @@ def extract_facts(text):
 
 
 # ================= 记忆 2：短期记忆（最近几轮对话） =================
+# ⚠️ 只在"问题自己说不清"时才注入上下文 —— 依据 tools\诊断_上下文影响.py 的重复实验（3 轮 × 6 变体）：
+#   · 裸问题（不注入）                    稳 ✓（知识库检索最可靠）
+#   · 极简背景 "(背景：住 3 栋 502)"        稳 ✓
+#   · 完整背景（5 条事实）会把知识库检索顶出阈值 ✗（校训这种临界条目最明显）
+#   · 对话历史相对安全 ✓（"只有对话"与 E 变体都稳）
+#   · 退化与前缀的**位置/形状无关**（A 33% 失败、B 67% 失败）→ 唯一有效的办法是"少拼"
+_CTX_HINTS = ("那", "这个", "那个", "它", "他", "她", "上面", "刚才", "继续",
+              "还有呢", "然后", "后来", "呢")
+
+
 def build_query(query):
-    """把记忆和最近对话压成【一行】背景，拼在问题前面一起发给平台。
+    """按需把上下文压成【一行】拼在问题前面；问题自己能说清时就不拼。
 
     为什么必须压成一行：平台是聊天模板（<user>…</user>），带换行和【】的文本会被它当成模板标记，
     实测模型会开始吐 </assistant><user>，回答也退化成"我在呢，有什么需要帮忙的吗？"这类敷衍话术。
@@ -99,16 +109,24 @@ def build_query(query):
     def flat(s):
         return re.sub(r"\s+", " ", str(s or "")).strip()
 
+    q = flat(query)
+    # 判据：问题很短（≤5 字）、或带了指代词 → 它自己说不清，才需要上下文
+    # ⚠️ 阈值不能放宽：实测 "宿舍能用电磁炉吗"（8 字）被注入后，知识库检索就多了一层随机失准的风险
+    needs_ctx = len(q) <= 5 or any(w in q for w in _CTX_HINTS)
+    if not needs_ctx:
+        return q            # 知识库类问题基本都走这里 → 检索最稳 ✓
+
     parts = []
     if _memory["facts"]:
-        _facts = "；".join(flat(f) for f in _memory["facts"][-5:])
-        parts.append("(背景：" + _facts + ")")
+        # 只带最近 2 条：实测背景越长，知识库检索越容易被稀释 ✗
+        facts = "；".join(flat(f) for f in _memory["facts"][-2:])
+        parts.append("(背景：" + facts + ")")
     if _history:
         turns = []
         for u, a in _history[-HISTORY_TURNS:]:
             turns.append("用户说「" + flat(u) + "」，你答「" + flat(a) + "」")
         parts.append("(刚才的对话：" + "；".join(turns) + ")")
-    parts.append(flat(query))
+    parts.append(q)
     return " ".join(p for p in parts if p)
 
 
