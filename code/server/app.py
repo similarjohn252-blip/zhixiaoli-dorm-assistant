@@ -1,42 +1,31 @@
-"""
-智小理 · 本地保底服务（Flask）
+"""Flask 应用与路由：只做"接线"，业务逻辑都在 brain / music / memory / speech 里。
 
 接口：
-  POST /v1/chat       收 ESP32 的 query（文字），返回 voice_text /
-                      device_action / audio_url
-  POST /v1/voice      收 ESP32 上传的 WAV（麦克风录音），一次完成 识别->意图->合成
+  POST /v1/chat       收 query（文字），返回 voice_text / device_action / audio_url
+  POST /v1/voice      收 ESP32 上传的 WAV，一次完成 识别→意图→合成
   POST /v1/asr        只做语音识别，方便在电脑上单独验证一段音频
   GET  /audio/<file>  给 ESP32 下载音频
-
-本次修复：
-  1. 【500 的根因】edge-tts 已被微软拒绝：wss 握手返回 403 WSServerHandshakeError，
-     异常没人接住 → Flask 返回 HTML 500 页 → ESP32 的 ArduinoJson 报 InvalidInput。
-     现在改成「百度 TTS 优先，edge-tts 兜底」，路由和全局都加了异常兜底，
-     任何情况都返回 JSON，绝不再吐 HTML。
-  2. TTS 失败不再影响文本回复：没合成出音频就只回文本，不带 audio_url。
-  3. 开发服务器开 threaded=True：否则 ESP32 一边拉音频一边发新请求会互相阻塞。
 """
 import time
 import traceback
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from server import memory
-from server.config import (
-    ACCESS_LOG, AUDIO_DIR, BRAIN, CLOUD_URL, HISTORY_TURNS, MEMORY_FILE, MIC_LAST_WAV, PORT,
-    PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
+from . import brain, memory
+
+from .brain import handle_query
+
+from .config import (
+    ACCESS_LOG, AUDIO_DIR, BRAIN, CLOUD_URL, HISTORY_TURNS, MEMORY_FILE,
+    MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
 )
-from server.music import (
+from .music import (
     MUSIC_COUNTRY, MUSIC_DIR, MUSIC_ENABLE,
     handle_music, music_request,
 )
-from server.speech import baidu_asr
-
-from server import brain
-from server.brain import handle_query
+from .speech import baidu_asr
 
 app = Flask(__name__)
-
 
 # ================= 路由 =================
 @app.route("/v1/chat", methods=["POST"])
@@ -177,21 +166,3 @@ def _access_log(response):
     except Exception:
         pass
     return response
-
-
-if __name__ == "__main__":
-    print(f"音频目录: {AUDIO_DIR}")
-    print(f"TTS 后端: {TTS_ENGINE}  格式: {TTS_FORMAT}")
-    _brain = "智小理平台 " + CLOUD_URL if BRAIN != "local" else "仅本地规则"
-    print(f"大脑: {BRAIN}  ({_brain})")
-    print(f"记忆: {MEMORY_FILE}")
-    print(f"      已知信息 {len(memory._memory['facts'])} 条，短期记忆保留最近 {HISTORY_TURNS} 轮")
-    print(f"找资源: 音乐 {'开' if MUSIC_ENABLE else '关'}"
-          f"  (iTunes 试听 30 秒, 地区 {MUSIC_COUNTRY})")
-    print(f"        下载到 {MUSIC_DIR}")
-    print(f"监听: 0.0.0.0:{PORT}  （ESP32 下载地址 "
-          f"http://{PUBLIC_HOST}:{PUBLIC_PORT}/audio/...）")
-    print("语音入口: POST /v1/voice (ESP32 上传录音)")
-    print("          POST /v1/chat (文字)   POST /v1/reset (新会话)")
-    print("记忆接口: GET/POST /v1/memory (查看/添加)   POST /v1/memory/clear (清空)")
-    app.run(host="0.0.0.0", port=PORT, threaded=True, debug=False)

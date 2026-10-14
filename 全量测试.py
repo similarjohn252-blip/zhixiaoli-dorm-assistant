@@ -34,7 +34,7 @@ urllib3.disable_warnings()
 PLATFORM = "https://aiagent.cqut.edu.cn:31134"
 KEY = os.environ["ZHIXIAOLI_CLOUD_KEY"]
 LOCAL = "http://127.0.0.1:5010"
-SERVER_PY = r"E:\天翼\code\mock_zhixiaoli.py"
+SERVER_PY = r"E:\天翼\code\run.py"
 ARDUINO_CLI = (r"E:\Arduino\Arduino IDE\resources\app\lib\backend"
                r"\resources\arduino-cli.exe")
 SKETCH = r"E:\天翼\code\sketch_oct8a_copy_20261008145732"
