@@ -16,7 +16,8 @@ _材料/
 *.log
 语音/*.mp3
 作品提交表_已填.docx
-作品提交表_已填.pdf# secrets: every .env variant, but keep the example tracked
+作品提交表_已填.pdf
+# secrets: every .env variant, but keep the example tracked
 .env*
 !.env.example
 *.bak
