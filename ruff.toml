@@ -5,11 +5,16 @@ line-length = 100
 
 [lint]
 # F = 真错误（未定义名字 / 未使用的导入）
-# I = 导入顺序    UP = 过时写法
-select = ["F", "I", "UP"]
+# UP = 过时写法
+# 不含 I（导入顺序）：已实测 ruff 的 isort 只支持"全一行"或"一名一行"，
+#   与本项目括号内"多名一行"的紧凑风格冲突 —— 带/不带尾逗号、
+#   split-on-trailing-comma=false、force-single-line=false 四种组合都无法通过。
+#   等以后改成 `from server import config` + `config.X` 风格（导入块变短）再启用。
+select = ["F", "UP"]
 
 # 有意不启用的规则（写在这里，免得后人以为是疏漏）：
 #   BLE001 / S110    宽 except / except-pass —— 本项目到处是"任何情况都返回 JSON"的兜底：
-#                    ESP32 收到 HTML 500 会报 InvalidInput，所以宁可吞异常也要回 JSON。
+#                    ESP32 收到 HTML 500 会报 InvalidInput，所以宁可吞异常也要回 JSON
+#   I001             导入顺序（原因见上）
 #   SIM102 / FURB167 风格类，收益低
 #   E501             行长不强制（关键处已手工折行）
