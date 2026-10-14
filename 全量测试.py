@@ -60,6 +60,14 @@ def rec(name, ok, detail=""):
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f"  —— {detail}" if detail else ""))
 
 
+def skip(name, detail=""):
+    """不适用 / 环境性提示：不计入失败。
+
+    为什么要这一档：把"没在跑"这种环境状态报成 FAIL，会淹没真正的失败 ✗
+    """
+    print(f"  [SKIP] {name}" + (f"  —— {detail}" if detail else ""))
+
+
 def jparse(ans):
     i = ans.rfind("{")
     if i < 0:
@@ -90,6 +98,9 @@ def start_server():
         "ZHIXIAOLI_PUBLIC_PORT": "5010",
         "ZHIXIAOLI_AUDIO_DIR": AUDIO,
         "ZHIXIAOLI_MEMORY_FILE": os.path.join(AUDIO, "记忆.json"),
+        # 子进程 stdout 强制 UTF-8，否则 server.log 会写成乱码，排障时读不了
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
     })
     print("  正在起临时服务端（独立数据目录）…")
     proc = subprocess.Popen([sys.executable, SERVER_PY], env=env,
@@ -165,8 +176,11 @@ try:
         rec("5000 上的服务端是新版", True, f"已知信息 {j.get('fact_count')} 条")
     else:
         rec("5000 上的服务端是新版", False, "是旧版，请 Ctrl+C 后重启 Flask")
-except Exception:
-    rec("5000 上的服务端在运行", False, "5000 没在监听（演示前记得先启动）")
+except Exception as e:
+    # 环境性提示：本脚本自己会起临时实例（5010），所以这里不算失败。
+    # 关键是报出**真实原因**，而不是笼统地说"没在监听" ✗
+    skip("5000 上没有服务端在跑（不影响本测试）",
+         f"{type(e).__name__}: {str(e)[:70]} —— 演示前记得单独启动它")
 
 print()
 print("=" * 70)
@@ -242,8 +256,14 @@ if start_server():
     except Exception as e:
         rec("memory · 接口", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
 else:
-    rec("临时服务端启动", False, "起不来，看 %TEMP%\\全量测试\\server.log")
-    print("     提示：把上面这个日志的最后 20 行发我")
+    # 起不来时直接把日志末尾打出来，省掉"你去翻日志"这一步
+    try:
+        with open(os.path.join(TMP, "server.log"), encoding="utf-8",
+                  errors="replace") as f:
+            tail = " / ".join(f.read().splitlines()[-3:])[:400]
+    except Exception:
+        tail = "（日志读不到）"
+    rec("临时服务端启动", False, tail or "（日志是空的）")
 
 print()
 print("=" * 70)
