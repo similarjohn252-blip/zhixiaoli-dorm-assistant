@@ -16,8 +16,8 @@
   2. TTS 失败不再影响文本回复：没合成出音频就只回文本，不带 audio_url。
   3. 开发服务器开 threaded=True：否则 ESP32 一边拉音频一边发新请求会互相阻塞。
 """
-import os
 import json
+import os
 import re
 import time
 import traceback
@@ -25,18 +25,17 @@ import traceback
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 
+from server import memory
 from server.config import (
     ACCESS_LOG, AUDIO_DIR, BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY,
     CLOUD_MULTITURN, CLOUD_TIMEOUT, CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
-    HISTORY_TURNS, MEMORY_FILE, MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
+    HISTORY_TURNS, MEMORY_FILE, MIC_LAST_WAV, PORT,
+    PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
 )
-
 from server.music import (
     MUSIC_COUNTRY, MUSIC_DIR, MUSIC_ENABLE,
     handle_music, make_tts, music_request,
 )
-
-from server import memory
 from server.speech import baidu_asr
 
 app = Flask(__name__)
