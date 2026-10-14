@@ -21,3 +21,7 @@ _材料/
 .env*
 !.env.example
 *.bak
+# runtime data: sqlite ledger and its journals (never in git)
+*.db
+*.db-wal
+*.db-shm
