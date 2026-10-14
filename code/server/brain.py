@@ -90,8 +90,12 @@ def _cloud_request(query, conv_id):
         _cloud_state["degraded"] = True
         _cloud_state["checked_at"] = time.time()
         print("[云端] ⚠️ 平台没把用户输入传给模型（模型收到的是 null）——"
-              "已改用本地规则；修好平台后 POST /v1/reset，或等几分钟自动重试",
+              "本轮改用本地规则；修好平台后 POST /v1/reset，或等几分钟自动重试",
               flush=True)
+        # ⚠️ 关键：这一轮**不能**把平台那句"我收到的是 null"当回答播出去 ✗
+        # （故障演练实测：以前会把 'The user input is "null" ...' 原样念给用户听 ✓）
+        # 抛出去让 handle_query 走"回退本地规则"分支 —— 日志里那句话才名副其实 ✓
+        raise RuntimeError("平台退化：模型收到的是 null，本轮改用本地规则")
     # 平台会先吐一段 <think>…</think> 推理过程，用户不需要听，去掉
     answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.S).strip()
     print(f"[云端] {dt:.1f}s 会话={'有' if conv_id else '无'} "
@@ -214,6 +218,10 @@ def local_reply(query):
     if (("我叫什么" in query or "我是谁" in query or "你记得我" in query)
             and memory._memory["facts"]):
         return "你跟我说过：" + "；".join(memory._memory["facts"][-3:]), "NONE"
+    # 报修：本地也该说人话（故障演练实测：以前只说"我在呢，有什么可以帮你的吗" ✗，
+    # 用户明明在报修，答非所问很突兀；真工单由 handle_query 那边建 ✓）
+    if any(w in query for w in _REPAIR_WORDS):
+        return "好的，已经帮你登记报修啦，师傅会尽快联系你。", "LED_GREEN_ON"
     if "会议室" in query:
         return "好的，已经帮你预约好会议室啦。", "LED_GREEN_ON"
     if "图书馆" in query or "借书" in query:

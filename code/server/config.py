@@ -63,7 +63,14 @@ ACCESS_LOG = os.path.join(AUDIO_DIR, "access.log")
 MIC_LAST_WAV = os.path.join(AUDIO_DIR, "mic_last.wav")
 BAIDU_CHUNK = 60  # 百度短文本合成单次上限约 60 字，超长自动分段拼接
 
-os.makedirs(AUDIO_DIR, exist_ok=True)
+try:
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+except OSError as e:
+    # 演练实测：以前这里会甩一个裸 FileNotFoundError，看日志的人根本不知道是"配置错了" ✗
+    raise SystemExit(
+        f"[配置错误] 音频目录不可用：{AUDIO_DIR}\n"
+        f"        原因：{e}\n"
+        f"        处理：在 E:\\天翼\\.env 里把 ZHIXIAOLI_AUDIO_DIR 改成一个**可写目录**")
 
 # ---------------- 记忆 ----------------
 # ⚠️ 锚点用"项目根"，不要用 __file__ 所在目录：
