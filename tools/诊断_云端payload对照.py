@@ -9,7 +9,6 @@
 用法：E:\\Python\\python.exe tools\\诊断_云端payload对照.py
 """
 import json
-import os
 import sys
 
 sys.path.insert(0, r"E:\天翼\code")

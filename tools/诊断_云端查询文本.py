@@ -19,7 +19,7 @@ import urllib3  # noqa: E402
 
 urllib3.disable_warnings()
 
-from server import brain, memory  # noqa: E402
+from server import memory  # noqa: E402
 
 QS = ["我们宿舍的灯坏了，要报修", "咱们学校的校训是什么", "放一首周杰伦的歌"]
 
