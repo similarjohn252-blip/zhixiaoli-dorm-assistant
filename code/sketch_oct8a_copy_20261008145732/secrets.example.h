@@ -7,3 +7,10 @@
 #define SERVER_HOST    "192.168.137.1"
 #define CLOUD_API_KEY  ""
 #define DEVICE_USER    "esp32_stu_001"
+
+// 固定 IP（可选）：=1 启用后板子 IP 固定不变；=0 用热点/路由器自动分配
+// 注意选一个不容易被 DHCP 分出去的号，避免和别的设备撞车
+#define USE_STATIC_IP   0
+#define STATIC_IP       192, 168, 137, 39
+#define STATIC_GATEWAY  192, 168, 137, 1
+#define STATIC_SUBNET   255, 255, 255, 0

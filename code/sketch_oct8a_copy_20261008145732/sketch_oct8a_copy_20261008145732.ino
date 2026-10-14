@@ -7,9 +7,14 @@
 #include <Wire.h>           // SSD1306 走硬件 I2C
 #include <U8g2lib.h>        // OLED 驱动 + 中文字库
 #include <WebServer.h>      // 给网页一个入口：POST /profile、POST /volume、GET /status
+#include <Preferences.h>    // NVS：把网页设过的音量记住，重启不忘
 
 // ================= 全局对象 =================
 WebServer server(80);       // 网页数据入口（端口 80）
+Preferences prefs;          // NVS（非易失存储）：目前只存音量
+
+// 音量默认值：与改动前一致（原来是写死的 21）
+static const uint8_t DEFAULT_VOLUME = 21;
 
 // ================= 配置区域 =================
 // 网络凭据与服务器地址在 secrets.h 里（.gitignore 已排除，不入库）
@@ -159,8 +164,9 @@ void setup() {
 
     //   音量：默认步数 21，曲线 dB = -112t³ + 172t² - 60（t = vol/21）
     //     vol=5 -> -52 dB（几乎无声）  vol=15 -> -13 dB  vol=18 -> -4 dB  vol=21 -> 0 dB
-    audio.setVolume(21);   // 0~21，越大越响。21=0dB 容易破音，15 约 -13dB 偏小，18 约 -4dB
-    Serial.printf("音量: %u / %u\n", audio.getVolume(), audio.getVolumeSteps());
+    audio.setVolume((uint8_t)constrain(prefs.getInt("volume", DEFAULT_VOLUME), 0, 21));
+    Serial.printf("音量: %u / %u（网页设置过就记住，重启不忘）\n",
+                  audio.getVolume(), audio.getVolumeSteps());
 
     // 2. 初始化麦克风（和功放互不干扰的第二个 I2S 通道）
     bool micOk = micInit();
@@ -171,6 +177,13 @@ void setup() {
 
     // 3. 连接 Wi-Fi
     //    注意：这里会一直等下去，一整块日志里只有一串点就等于"卡在这一步"，后面的代码一行都没跑。
+#if USE_STATIC_IP
+    // 固定 IP：演示时 IP 不再变（想改回自动分配：把 secrets.h 里 USE_STATIC_IP 设为 0）
+    WiFi.mode(WIFI_STA);
+    WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY),
+                IPAddress(STATIC_SUBNET));
+    Serial.println("使用固定 IP（配置见 secrets.h）");
+#endif
     WiFi.begin(ssid, password);
     unsigned long wifiTick = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -202,6 +215,7 @@ void setup() {
             int v = constrain(doc["volume"].as<int>(), 0, 21);
             audio.setVolume((uint8_t)v);
             Serial.printf("【音量已设为 %d】\n", audio.getVolume());
+            prefs.putInt("volume", (int)audio.getVolume());   // 存进 NVS：重启不忘
         } else {
             Serial.println("【音量未改动】body 不是合法 JSON 或缺 volume 字段");
         }
@@ -211,7 +225,8 @@ void setup() {
         server.send(200, "application/json", "{\"status\":\"online\"}");
     });
     server.begin();
-    Serial.println("WebServer 已启动，端口 80");
+    server.enableCORS(true);   // 允许网页跨源 fetch（否则浏览器会拦掉 POST，板子根本收不到）
+    Serial.println("WebServer 已启动，端口 80（已开 CORS）");
     oledStatus = "待机 按 BOOT 说话";
     oledFoot   = "IP " + WiFi.localIP().toString();
     oledRefresh(true);
