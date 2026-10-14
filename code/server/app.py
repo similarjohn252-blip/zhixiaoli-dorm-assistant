@@ -186,8 +186,11 @@ def device_profile():
 def health():
     checks = {}
 
-    b = device.board_status()
+    # 板子：用**短超时**（1.2 秒）—— 健康检查必须快 ✗
+    # （默认 4 秒超时会让健康检查卡 4~5 秒，前端轮询会误判"服务不可用" ✓）
+    b = device.board_status(timeout=1.2)
     checks["board"] = {"ok": bool(b.get("online")),
+                       "probe_timeout_s": 1.2,
                        "detail": b.get("error") or "在线"}
 
     # 云端：只报告服务端记录的降级状态，**不主动发请求**（避免消耗额度）

@@ -24,10 +24,16 @@ def _err(e) -> str:
     return f"{type(e).__name__}: {str(e)[:80]}"
 
 
-def board_status() -> dict:
-    """板子在线吗。失败也返回结构化结果（online=False）。"""
+def board_status(timeout: float = None) -> dict:
+    """板子在线吗。失败也返回结构化结果（online=False）。
+
+    ⚠️ timeout 参数是给 /v1/health 用的 —— **健康检查必须快** ✗
+    实测：板子不在线时，默认 4 秒超时会让 /v1/health 卡 4~5 秒，
+    前端轮询会误以为"服务不可用"，部署自检也被拖慢（真踩过 ✓）
+    """
     try:
-        r = requests.get(_base() + "/status", timeout=BOARD_TIMEOUT)
+        r = requests.get(_base() + "/status",
+                         timeout=BOARD_TIMEOUT if timeout is None else timeout)
         return {"online": True, "board": BOARD_HOST,
                 "detail": r.json() if r.content else {}}
     except Exception as e:
