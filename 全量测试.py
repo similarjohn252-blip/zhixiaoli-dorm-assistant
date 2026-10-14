@@ -194,20 +194,39 @@ cases = [
     ("帮我订个会议室", "NONE", None, False),
     ("你好呀", "NONE", None, False),
 ]
-for q, want_action, want_word, forbid_chabudao in cases:
+FLAKY = []          # 记录"第一次没中、重试才过"的用例（平台检索实测有随机性）
+
+
+def case_platform(q, want_action, want_word, forbid_chabudao):
+    """跑一次平台用例，返回 (ok, detail)。"""
     try:
         j, raw = ask_platform(q)
-        vt, act = j.get("voice_text", ""), j.get("device_action", "")
-        ok, detail = bool(vt), f"动作={act} 回复={vt[:34]}"
-        if want_action and act != want_action:
-            ok, detail = False, f"期望动作 {want_action}，实际 {act}"
-        if want_word and want_word not in vt:
-            ok, detail = False, f"回答里没有 {want_word}：{vt[:34]}"
-        if forbid_chabudao and "查不到" in vt:
-            ok, detail = False, f"答了“查不到”（检索没命中）：{vt[:34]}"
-        rec(f"平台 · {q}", ok, detail)
     except Exception as e:
-        rec(f"平台 · {q}", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
+        return False, f"异常 {type(e).__name__}: {str(e)[:60]}"
+    vt, act = j.get("voice_text", ""), j.get("device_action", "")
+    ok, detail = bool(vt), f"动作={act} 回复={vt[:34]}"
+    if want_action and act != want_action:
+        ok, detail = False, f"期望动作 {want_action}，实际 {act}"
+    if want_word and want_word not in vt:
+        ok, detail = False, f"回答里没有 {want_word}：{vt[:34]}"
+    if forbid_chabudao and "查不到" in vt:
+        ok, detail = False, f"答了“查不到”（检索没命中）：{vt[:34]}"
+    return ok, detail
+
+
+for q, want_action, want_word, forbid_chabudao in cases:
+    ok, detail = case_platform(q, want_action, want_word, forbid_chabudao)
+    if not ok:
+        # 平台检索实测有约 13% 的随机失准（见 tools\测_知识库稳定性.py）：
+        # 失败先重试一次，但把"偶发"显式记下来 —— 既不掩盖，也不误判成必现故障。
+        time.sleep(1.0)
+        ok2, detail2 = case_platform(q, want_action, want_word, forbid_chabudao)
+        if ok2:
+            FLAKY.append(q)
+            ok, detail = True, detail2 + "（偶发：第 2 次才过）"
+        else:
+            ok, detail = ok2, detail2
+    rec(f"平台 · {q}", ok, detail)
 
 print()
 print("=" * 70)
@@ -236,6 +255,14 @@ if start_server():
                       headers={"Content-Type": "audio/wav; rate=16000"}).json()
         asr, vt = j.get("asr_text", ""), j.get("voice_text", "")
         rec("voice · 识别出“校训”", "校训" in asr, f"识别={asr}")
+        # 知识库偶发失准（实测约 13%）→ 重试一次并标注为偶发
+        if "明德" not in vt:
+            time.sleep(1.0)
+            j2 = ask_local("/v1/voice", data=data,
+                           headers={"Content-Type": "audio/wav; rate=16000"}).json()
+            if "明德" in (j2.get("voice_text") or ""):
+                vt = j2["voice_text"]
+                FLAKY.append("voice · 答出知识库内容")
         rec("voice · 答出知识库内容", "明德" in vt, f"回复={vt[:34]}")
     except Exception as e:
         rec("voice · 假录音链路", False, f"异常 {type(e).__name__}: {str(e)[:60]}")
@@ -288,7 +315,11 @@ if proc:
 
 print()
 print("=" * 70)
-print(f"汇总：通过 {passed} 项，失败 {failed} 项")
+print(f"汇总：通过 {passed} 项，失败 {failed} 项，其中偶发 {len(FLAKY)} 项（重试才过）")
+for _f in FLAKY:
+    print(f"  偶发：{_f}")
+if FLAKY:
+    print("提示：偶发＝平台侧检索有随机性。同一句反复偶发，就该加固知识库（补文件 / 调 TopK）")
 print("=" * 70)
 print("把这段输出整段发我，我逐条判读。")
 sys.exit(0 if failed == 0 else 2)
