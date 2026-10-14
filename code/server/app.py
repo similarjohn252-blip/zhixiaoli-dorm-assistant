@@ -16,11 +16,10 @@ from . import brain, memory
 from .brain import handle_query
 
 from .config import (
-    ACCESS_LOG, AUDIO_DIR, BRAIN, CLOUD_URL, HISTORY_TURNS, MEMORY_FILE,
-    MIC_LAST_WAV, PORT, PUBLIC_HOST, PUBLIC_PORT, TTS_ENGINE, TTS_FORMAT,
+    ACCESS_LOG, AUDIO_DIR, MEMORY_FILE,
+    MIC_LAST_WAV,
 )
 from .music import (
-    MUSIC_COUNTRY, MUSIC_DIR, MUSIC_ENABLE,
     handle_music, music_request,
 )
 from .speech import baidu_asr
