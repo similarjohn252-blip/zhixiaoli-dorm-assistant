@@ -25,11 +25,13 @@ H = {"Authorization": "Bearer " + os.environ["ZHIXIAOLI_CLOUD_KEY"],
 # (用例, 问题, 期望的 device_action(None=不校验), 答复里必须出现的词(None=不校验), 是否禁止出现"查不到")
 CASES = [
     ("知识库 · 校训", "咱们学校的校训是什么", None, "明德", True),
-    ("知识库 · 学生手册", "学生手册里对考试作弊是怎么规定的", None, None, True),
-    ("知识库 · 宿舍管理", "宿舍管理有什么要求", None, None, True),
-    ("业务 · 订会议室", "帮我订个会议室", "LED_GREEN_ON", None, False),
-    ("业务 · 查图书馆", "帮我查一下图书馆的开放时间", "LED_BLUE_ON", None, False),
-    ("业务 · 设闹钟", "帮我设个明天早上七点的闹钟", "LED_BLUE_ON", None, False),
+    ("知识库 · 宿舍管理规定", "宿舍管理有什么要求", None, "电器", True),
+    ("知识库 · 手册·留宿", "留宿他人会有什么处理", None, "留宿", True),
+    ("宿舍 · 报修登记", "我们宿舍的灯坏了，要报修", "LED_GREEN_ON", None, False),
+    ("宿舍 · 报修进度", "宿舍报修什么时候能来人修", "LED_BLUE_ON", None, False),
+    ("宿舍 · 违规提醒", "宿舍能用电磁炉吗", "LED_RED_ON", None, False),
+    ("宿舍 · 晚归报备", "我今晚晚点回宿舍", "LED_BLUE_ON", None, False),
+    ("超范围 · 引导", "帮我订个会议室", "NONE", None, False),
     ("闲聊 · 问候", "你好呀", "NONE", None, False),
 ]
 

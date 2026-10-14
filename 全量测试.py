@@ -188,10 +188,11 @@ print("A. 平台 API 直连（和板子走同一条路）")
 print("=" * 70)
 cases = [
     ("咱们学校的校训是什么", None, "明德", True),
-    ("学生手册里对考试作弊是怎么规定的", None, None, True),
-    ("帮我订个会议室", "LED_GREEN_ON", None, False),
-    ("帮我查一下图书馆的开放时间", "LED_BLUE_ON", None, False),
-    ("帮我设个明天早上七点的闹钟", "LED_BLUE_ON", None, False),
+    ("宿舍管理有什么要求", None, "电器", True),
+    ("留宿他人会有什么处理", None, "留宿", True),
+    ("我们宿舍的灯坏了，要报修", "LED_GREEN_ON", None, False),
+    ("宿舍能用电磁炉吗", "LED_RED_ON", None, False),
+    ("帮我订个会议室", "NONE", None, False),
     ("你好呀", "NONE", None, False),
 ]
 for q, want_action, want_word, forbid_chabudao in cases:
@@ -215,7 +216,8 @@ print("B. 本地服务端（临时实例，独立数据目录）")
 print("=" * 70)
 if start_server():
     rec("临时服务端启动", True, LOCAL)
-    for q, tag in (("咱们学校的校训是什么", "知识库"), ("帮我订个会议室", "办事意图")):
+    for q, tag in (("咱们学校的校训是什么", "知识库"),
+                   ("我们宿舍的灯坏了，要报修", "宿舍报修")):
         try:
             j = ask_local("/v1/chat", {"query": q}).json()
             rec(f"chat · {tag} 字段齐全",
