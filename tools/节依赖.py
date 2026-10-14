@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """节依赖分析：拆包前用它算出"这一节需要 import 什么"。
 
 背景：人工列导入清单会漏（本项目 music.py 就漏了 traceback / memory ✗）。
