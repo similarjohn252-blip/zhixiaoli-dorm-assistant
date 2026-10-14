@@ -1,0 +1,9 @@
+#!/bin/sh
+# 提交前检查：别把 .env 里的真实密钥 / 真 token 提交进仓库
+# 为什么要机器管：本项目一个会话里踩了 3 次（.env.bak / 文档里的密钥前缀 / 转发文档填了真 token）
+# 文件列表在 sh 里取（Git Bash 能正常捕获 git 输出）；Python 侧只读参数、不起子进程
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+PY="E:/Python/python.exe"
+command -v python >/dev/null 2>&1 && PY=python
+exec "$PY" "$(git rev-parse --show-toplevel)/tools/提交前检查.py" $files

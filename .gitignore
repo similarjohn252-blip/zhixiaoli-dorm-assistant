@@ -25,3 +25,6 @@ _材料/
 *.db
 *.db-wal
 *.db-shm
+# filled-in forwarding docs (contain the real token)
+*_已填token*.md
+*_已填*.md
