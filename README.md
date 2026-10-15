@@ -108,7 +108,7 @@ code\
     trace.py            链路追踪（request_id + 各段耗时 + JSON 日志 ✓）
     preflight.py        启动前自检（fail-fast ✓）
     app.py              Flask 路由（只做"接线" ✓）
-  sketch_oct8a_copy_20261008145732\   固件（.ino + secrets.h + sketch.yaml）
+  sketch_oct8a_copy_20261008145732\   固件（.ino + config.h 硬件调参 + secrets.h 网络密钥 + sketch.yaml）
 tools\                  自测 / 诊断 / 维护脚本（17 个，见下）
 _材料\                  赛题原始材料（PDF 提取文本、手册、选题方向）
 语音\                   运行时产物：播报音频、最近录音、放歌缓存、日志（已 gitignore ✓）

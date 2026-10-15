@@ -17,9 +17,12 @@ Preferences prefs;          // NVS（非易失存储）：目前只存音量
 static const uint8_t DEFAULT_VOLUME = 21;
 
 // ================= 配置区域 =================
-// 网络凭据与服务器地址在 secrets.h 里（.gitignore 已排除，不入库）
+// 两份配置，各管一摊 ✓（工程债 B1 尾巴：参数以前散在这个文件里 —— 顶部一批、第 700 行又一批 ✗）
+//   · config.h  = 硬件与调参（**全队一致** ✓，跟代码入库 ✓）
+//   · secrets.h = 网络与密钥（**每人不同** ✗，.gitignore 已排除 ✓）
 // 首次使用：复制 secrets.example.h → secrets.h，填入真实值
 #include "secrets.h"
+#include "config.h"
 
 const char* ssid     = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -31,35 +34,8 @@ const char* voiceUrl = SERVER_BASE "/v1/voice";
 const char* apiKey   = CLOUD_API_KEY;             // 仅"直连云端"那条路用到
 const char* userId   = DEVICE_USER;
 
-// 定时发固定测试指令：0=关（现在靠麦克风触发），1=开（没接麦克风时用它验证播放链路）
-#define AUTO_TEST_QUERY 0
-// 上面开关打开时，每隔多久发一次测试指令（毫秒）。音频播放期间会自动跳过。
-#define QUERY_INTERVAL_MS 15000
-
-// ================= 麦克风（I2S 输入）配置 =================
-// 常见 I2S MEMS 麦克风（INMP441 / ICS-43434 / MSM261S4030H0）接线一致：
-//   VDD -> 3V3      GND -> GND      L/R -> GND(选左声道)
-//   SCK -> MIC_SCK  WS  -> MIC_WS   SD  -> MIC_SD
-// ⚠️ 麦克风用 I2S_NUM_1，功放用 I2S_NUM_0，两者互不干扰（ESP32-S3 有两个 I2S）
-#define MIC_SCK 15
-#define MIC_WS  16
-#define MIC_SD  17
-#define MIC_LR_LEFT 1        // L/R 接 GND 时为 1（左声道）；接 3V3 就改成 0
-#define MIC_GAIN 2           // 实测 ×4 时峰值撞满 32768（削顶），降到 2；声音偏小再加大
-#define MIC_SILENCE_PEAK 2200 // 实测底噪 ~1130、说话 ~4900（增益 2 之后），取中间偏下
-
-// 录音参数：百度识别要求 16kHz / 单声道 / 16 位
-#define REC_SAMPLE_RATE 16000
-#define REC_MAX_SECONDS 6    // 单次最长录多久
-#define REC_SILENCE_MS  1200 // 说完后静音这么久就自动停止
-#define BUTTON_PIN 0         // 板子上的 BOOT 键（按下接地），按一下开始说话
-
-// ================= OLED 显示屏配置（SSD1306 128x64，4 针）=================
-// 模块丝印（常见顺序）: GND / VCC / SCL / SDA
-//   GND -> GND     VCC -> 3V3     SCL -> IO47     SDA -> IO21
-// ⚠️ 必须显式指定引脚：ESP32-S3 的默认 I2C 是 IO8/IO9，而这两个脚在你这块板子上被拉到了 3V3
-#define OLED_SCL 47
-#define OLED_SDA 21
+// 引脚与调参见 config.h ✓（工程债 B1 尾巴：原来散在这里，现在集中到一处 ✓）
+// 下面这些是**由配置派生的变量/对象**，不是配置本身 ✓
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA);
 bool   oledReady  = false;
 String oledStatus = "启动中";
@@ -68,11 +44,6 @@ String oledReply  = "";
 String oledFoot   = "";
 String oledLastDrawn = "";
 bool   oledStale  = false;   // true = 屏幕上的"听到/回复"是上一轮的，标签要写成"上次"
-
-// ================= 功放 I2S 配置 =================
-#define I2S_BCLK 5
-#define I2S_LRC  6
-#define I2S_DIN  7
 Audio audio; // 创建音频对象
 
 String conversation_id = "";
@@ -709,14 +680,8 @@ void sendToZhiXiaoLi(String userQuery) {
 }
 
 // ================= 三颗 LED：真实硬件动作（工程债 C2）=================
-// 语义：绿 = 已受理 / 蓝 = 处理中 / 红 = 警示
-//       NONE = 全灭（这一轮没有硬件动作） / PLAY_MUSIC = 不动灯（保留上一状态）
-// 接线：GPIO --(220Ω 电阻；蓝灯建议 100Ω)--> LED 长脚(阳极)；LED 短脚(阴极) --> GND
-// ⚠️ 引脚号按你实际接线改这三行即可；避开 IO33~37（本板 N16R8 的 OPI PSRAM 占用）
-#define LED_GREEN_PIN 4
-#define LED_BLUE_PIN  12
-#define LED_RED_PIN   13
-
+// 语义、接线与引脚号都在 config.h 的「三颗 LED」一节 ✓
+// （工程债 B1 尾巴：以前引脚号写在这一行，离麦克风那批有 700 行远 ✗，现在集中到一处 ✓）
 void ledSet(const String &action) {
     // 每次都设一遍 pinMode：幂等、无害，顺便省掉"忘了在 setup 里初始化"的风险 ✓
     pinMode(LED_GREEN_PIN, OUTPUT);
