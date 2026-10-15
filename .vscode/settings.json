@@ -1,0 +1,20 @@
+{
+  // 让 Pylance / 自动补全能找到 code\ 下的 server 包 ✓
+  //
+  // 为什么需要这份配置：
+  //   tools\ 和根目录的脚本，都是**运行时**先把 code\ 插进 sys.path、再 `import server` 的 ✓
+  //   （那样写是为了"从任何目录运行都能找到包" ✓ —— 本项目在路径上踩过坑 ✓）
+  //   但 Pylance 是**静态分析**、不执行代码 ✗ → 会报
+  //   "无法解析导入 server  Pylance(reportMissingImports)" （**假警报** ✓ 脚本本身跑得好好的 ✓）
+  //
+  // 为什么不改代码：给每处加 `# type: ignore` 只是把警报藏起来 ✗，
+  //   而这份配置是**一次性修好所有文件** ✓（当前有 10 个工具、20 处这样的 import ✓）
+  //
+  // 生效方式：保存后**重载一次窗口**（Ctrl+Shift+P → Developer: Reload Window ✓）
+  "python.analysis.extraPaths": ["code"],
+  "python.autoComplete.extraPaths": ["code"],
+  // 与项目其它地方保持一致的解释器（本机固定用这个 ✓）
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "warning"
+  }
+}
