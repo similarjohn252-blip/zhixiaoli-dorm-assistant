@@ -48,6 +48,8 @@ app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无�
 @app.before_request
 def _trace_start():
     trace.start(request.headers.get("X-Request-Id") or None)
+    # 记下本次请求自己的 Host → 音频地址跟着请求走，IP 再变也不会把死地址发给板子 ✓
+    trace.set_base(request.host_url)
 
 
 @app.after_request

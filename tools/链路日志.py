@@ -72,13 +72,16 @@ def main():
     want = None
     slow = "--slow" in args
     tail = 10
+    skip = set()
     if "--tail" in args:
         i = args.index("--tail")
         if i + 1 < len(args):
             tail = int(args[i + 1])
-    for a in args:
-        if not a.startswith("--") and a not in ("--slow",):
-            want = a
+            skip.add(i + 1)      # ✗ 别把 --tail 的值当成 id 前缀（实测踩到：--tail 3 → 只看前缀 '3' ✓）
+    for idx, a in enumerate(args):
+        if idx in skip or a.startswith("--"):
+            continue
+        want = a
 
     rows = load(config.LOG_FILE)
     chains = group(rows)

@@ -44,6 +44,23 @@ def rid() -> str:
     return getattr(_local, "rid", "-")
 
 
+def set_base(url: str):
+    """记下**本次请求**的对外基地址（形如 http://192.168.137.1:5000 ✓）"""
+    _local.base = (url or "").rstrip("/")
+
+
+def base_url(fallback: str = "") -> str:
+    """本次请求的对外基地址；拿不到就用 fallback ✓
+
+    为什么要它：音频地址原来写死 PUBLIC_HOST ✗ ——
+    校园网 IP 一变（10.103.7.74 → 10.203.24.251），板子拿到的就是**死地址**，
+    屏幕显示"播放失败"（2026-10-15 实测踩到 ✓✓）。
+    改成"跟着请求走"之后：板子走热点问 → 拿到 192.168.137.1 ✓；
+    网页走校园网问 → 拿到校园网地址 ✓ —— **IP 再变也不会坏** ✓
+    """
+    return getattr(_local, "base", "") or fallback
+
+
 def _stages():
     if not hasattr(_local, "stages"):
         _local.stages = []

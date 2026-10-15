@@ -9,7 +9,17 @@ import traceback
 import requests
 
 from . import memory
+from . import trace
 from .config import AUDIO_DIR, AUDIO_FILENAME, PUBLIC_HOST, PUBLIC_PORT
+
+
+def _base():
+    """本机对外基地址：**优先用本次请求自己的 Host** ✓
+
+    谁问就给谁能打开的地址（板子走热点 → 192.168.137.1 ✓；网页走校园网 → 校园网地址 ✓）
+    以前写死 PUBLIC_HOST ✗：校园网 IP 一变，板子就"播放失败"（2026-10-15 实测 ✓）
+    """
+    return trace.base_url(f"http://{PUBLIC_HOST}:{PUBLIC_PORT}")
 from .speech import synthesize
 
 # ================= 找资源：音乐（上网搜歌 → 下载到本地 → 交给板子播） =================
@@ -160,7 +170,7 @@ def download_music(term, url):
             with open(path, "wb") as f:
                 f.write(data)
         print(f"[音乐] 就绪: {path}（{os.path.getsize(path)} 字节）", flush=True)
-        return f"http://{PUBLIC_HOST}:{PUBLIC_PORT}/audio/music/{name}"
+        return f"{_base()}/audio/music/{name}"
     except Exception as e:
         print(f"[音乐] 下载失败: {type(e).__name__}: {e}", flush=True)
         return ""
@@ -173,7 +183,7 @@ def make_tts(text):
         engine = synthesize(text, path)
         if os.path.getsize(path) > 0:
             print(f"[TTS] {engine} 合成成功: {path}", flush=True)
-            return f"http://{PUBLIC_HOST}:{PUBLIC_PORT}/audio/{AUDIO_FILENAME}"
+            return f"{_base()}/audio/{AUDIO_FILENAME}"
         print("[TTS] 生成了 0 字节文件，视为失败", flush=True)
     except Exception:
         print("[TTS] 合成失败，本次只回文本：", flush=True)
