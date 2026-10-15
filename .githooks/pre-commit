@@ -6,4 +6,15 @@ files=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$files" ] && exit 0
 PY="E:/Python/python.exe"
 command -v python >/dev/null 2>&1 && PY=python
+# ---------- 静态检查：ruff 必须干净 ✓ ----------
+# 2026-10-15 加：那天我又"红了还提交"了一次（ruff 明明把 F401 打出来了 ✗）→ 交给机器拦 ✓
+# 为什么不放进 Python 护栏：那个脚本**故意不起子进程**（它曾因 EPERM 管道自己崩掉 ✓）
+# 所以子进程只出现在这个 sh hook 里 —— 这里起进程本来就是它的本职 ✓
+RUFF_OUT=$("$PY" -m ruff check . 2>&1)
+if [ $? -ne 0 ]; then
+    echo "[提交前检查] x 静态检查没过（ruff）—— 修完再提交 ✓"
+    echo "$RUFF_OUT" | head -20
+    exit 1
+fi
+
 exec "$PY" "$(git rev-parse --show-toplevel)/tools/提交前检查.py" $files
