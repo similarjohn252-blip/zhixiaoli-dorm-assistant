@@ -8,7 +8,11 @@ import time
 
 from dotenv import load_dotenv
 
-load_dotenv()   # 会从本文件所在目录逐级向上找 .env → 能找到 E:\天翼\.env
+# ⚠️ 显式锚定到"项目根"的 .env —— 原来的 load_dotenv() 是**按当前工作目录**逐级向上找的 ✗，
+#    从别的目录启动（换机复现时最常见）就找不到它，表现是"改了配置没生效" ✓
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv(os.path.join(_ROOT, ".env"))
+load_dotenv()   # 兜底：也按老规矩找一遍（保持原有行为 ✓）
 
 
 def require(name: str) -> str:

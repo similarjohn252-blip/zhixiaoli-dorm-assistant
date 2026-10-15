@@ -2,6 +2,14 @@
 
 用法：E:\\Python\\python.exe run.py
 """
+from server import preflight
+
+# ⚠️ 顺序很重要：**先只读 .env 做第一道自检**（此时不导入别的 server 模块 ✗）
+#    因为 config 在 import 时就会对缺失的必需变量 fail-fast → 那只能"一次报一个" ✗
+#    在这里拦住，就能一次把缺的**全列出来** ✓
+if not preflight.check_env_only()[0]:
+    raise SystemExit(1)
+
 from server import memory
 from server.app import app
 from server.config import (
@@ -12,6 +20,11 @@ from server.music import MUSIC_COUNTRY, MUSIC_DIR, MUSIC_ENABLE
 
 
 def main():
+    # 完整自检：端口占用 / 目录可写 / 对外地址 / 磁盘空间（有硬问题就不给启动 ✓）
+    # env_checked=True：第一道已在文件顶部做过，这里不重复 ✓
+    ok, _hard, _soft = preflight.run(env_checked=True)
+    if not ok:
+        raise SystemExit(1)
     print(f"音频目录: {AUDIO_DIR}")
     print(f"TTS 后端: {TTS_ENGINE}  格式: {TTS_FORMAT}")
     _brain = "智小理平台 " + CLOUD_URL if BRAIN != "local" else "仅本地规则"
