@@ -7,7 +7,7 @@ import requests
 
 from . import trace
 from .config import (BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY,
-                     TTS_EDGE_RATE, TTS_EDGE_SR, TTS_EDGE_VOICE, TTS_ENGINE,
+                     TTS_EDGE_RATE, TTS_EDGE_VOICE, TTS_ENGINE,
                      TTS_PER, TTS_PIT, TTS_SPD, TTS_VOL)
 
 # 百度 access_token 缓存（有效期 30 天）—— 模块级可变状态，只在本模块内使用
@@ -99,12 +99,16 @@ def edge_tts_generate(text, out_path):
         import soundfile as sf
 
         data, sr = sf.read(tmp)
-        # ⚠️ 2026-10-15 修正 ✗：原来硬转 16kHz（照百度 aue=6 抄的 ✓）
-        #    但 16kHz 把 8kHz 以上频率**全砍掉** → 晓晓听起来就不像晓晓了 ✗
-        #    （实测判别：时长比例 0.306 秒/字 ≈ edge 的 0.310 ✓ 证明确实是 edge 在说 ✓）
-        #    现在默认 **保持 edge 原生 24kHz** ✓ 完全不重采样 → 音色与试听样音一致 ✓
-        #    万一 24k 播不了：把 ZHIXIAOLI_TTS_EDGE_SR 设成 16000 退回 ✓
-        sf.write(out_path, data, (TTS_EDGE_SR or sr), subtype="PCM_16")
+        # ⚠️ 2026-10-15 踩过并已修正的真坑 ✗（记录详细，因为它骗了我两轮 ✓）：
+        #    第一版写成 sf.write(out_path, data, 16000, ...) ——
+        #    我以为那是"重采样到 16kHz"✗，其实 libsndfile **不做重采样** ✓：
+        #    它只把【同一批帧】用另一个采样率【声明】一遍 ✓ →
+        #      237,312 帧 ÷ 24000 = 9.89 秒 原速 ✓
+        #      237,312 帧 ÷ 16000 = 14.83 秒 = **慢放 1.5 倍 + 音调压低** ✗✗
+        #    用户听到的原话是"不是晓晓的声音"✗ —— 那不是音色问题，是**放慢了、变粗了** ✓
+        #    → 所以这里【原样写回 edge 的采样率】✓ 一帧不动 ✓ 音色与试听样音完全一致 ✓✓
+        #    （板上实测 24kHz 单声道 WAV 能播 ✓ 所以也不需要"退回 16k"那种旋钮 ✓ 已删）
+        sf.write(out_path, data, sr, subtype="PCM_16")
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)

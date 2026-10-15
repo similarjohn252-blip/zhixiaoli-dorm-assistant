@@ -75,14 +75,13 @@ TTS_VOL = int(os.environ.get("ZHIXIAOLI_TTS_VOL", "5"))   # 音量 0~15（板子
 #   zh-CN-YunxiaNeural 云夏(童) / zh-CN-liaoning-XiaobeiNeural 晓北(东北话) / zh-HK-HiuMaanNeural 曉曼(粤语)
 #   全部候选见 tools\试听音色.py ✓
 TTS_EDGE_VOICE = os.environ.get("ZHIXIAOLI_TTS_EDGE_VOICE", "zh-CN-XiaoxiaoNeural")
-# ⚠️ 语速：edge 默认比百度【慢约 50%】✗（实测同一句 14.8s vs 9.7s）
-#    → 调快一点能明显缩短现场等待 ✓（+20% 是实测较自然的档位 ✓；范围 -50%~+100% ✓）
-TTS_EDGE_RATE = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_RATE", "20"))
-# ⚠️ 转码目标采样率：**0 = 保持 edge 原生（24kHz）✓ 推荐**
-#    2026-10-15 实测教训 ✗：一开始硬转 16kHz（照百度 aue=6 抄的 ✓）→
-#    16kHz 把 8kHz 以上频率全砍掉 → 晓晓听起来【不像晓晓】了 ✓（用户原话 ✗）
-#    若哪天发现 24kHz 在板子上播不了，把它设成 16000 即可退回 ✓
-TTS_EDGE_SR = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_SR", "0"))
+# 语速（百分比）：0 = 原生 ✓
+# ⚠️ 2026-10-15 实测修正 ✗：一开始设成 +20%，理由是"edge 比百度慢约 50%，调快能缩短等待" ✓
+#    —— 用户听完的原话是【语速太快了】✗
+#    而且那个理由本身也站不住 ✓：语速只决定【它说多久】，不决定【你等多久】
+#    （等待时间 = 合成 1~2 秒 + 板子下载，与音频时长无关 ✓）
+#    → 默认改回 0（原生 ✓，也就是试听样音那一档 ✓）；范围约 -50 ~ +100 ✓
+TTS_EDGE_RATE = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_RATE", "0"))
 
 # 百度语音 Key（缺任一项都会在启动时 fail fast）
 BAIDU_API_KEY = require("BAIDU_API_KEY")
