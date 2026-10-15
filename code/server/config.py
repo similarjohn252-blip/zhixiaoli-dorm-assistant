@@ -61,6 +61,15 @@ BAIDU_SECRET_KEY = require("BAIDU_SECRET_KEY")
 AUDIO_FILENAME = "output.wav" if TTS_FORMAT == "wav" else "output.mp3"
 ACCESS_LOG = os.path.join(AUDIO_DIR, "access.log")
 MIC_LAST_WAV = os.path.join(AUDIO_DIR, "mic_last.wav")
+
+# ---------------- 链路日志（工程债 B4）----------------
+# 一次语音请求跨"识别 / 平台 / 合成 / 播放"四段，出问题只能靠猜 ✗
+# → 每次请求一个 request_id，所有日志行都带它（JSON lines + 滚动切割 ✓）
+LOG_FILE = os.environ.get(
+    "ZHIXIAOLI_LOG_FILE",
+    os.path.join(AUDIO_DIR, "链路日志.jsonl"))
+LOG_ENABLE = os.environ.get("ZHIXIAOLI_LOG", "1") == "1"
+
 BAIDU_CHUNK = 60  # 百度短文本合成单次上限约 60 字，超长自动分段拼接
 
 try:
@@ -105,21 +114,37 @@ STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _code_version() -> str:
-    """取 git 短 hash；直接读 .git，不起子进程（快，且受限环境里也能用）。
+    """取 git 短 hash：直接读 .git，不起子进程（快、且受限环境也能用 ✓）。
 
-    取不到（不是 git 仓库 / 权限问题）就返回 unknown —— 绝不抛异常 ✗
+    ⚠️ 坑：refs 可能**被打包**进 `.git/packed-refs` ✗ ——
+       只读 `.git/refs/heads/xxx` 会 FileNotFound（实测踩到：版本一直显示 unknown ✓）。
+       所以两条路都试：先找未打包的 ref 文件，再查 packed-refs ✓
+    取不到就返回 unknown —— 绝不抛异常 ✗
     """
     try:
         root = os.path.dirname(CODE_DIR)          # E:\天翼\code → E:\天翼
         with open(os.path.join(root, ".git", "HEAD"), encoding="utf-8") as f:
             head = f.read().strip()
-        if head.startswith("ref:"):
-            ref = head.split(" ", 1)[1].strip()
-            with open(os.path.join(root, ".git", ref), encoding="utf-8") as f:
+        if not head.startswith("ref:"):
+            return head[:7]                        # 分离头指针：HEAD 里直接是 sha
+        ref = head.split(" ", 1)[1].strip()
+        # ① 未打包
+        p = os.path.join(root, ".git", ref.replace("/", os.sep))
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
                 return f.read().strip()[:7]
-        return head[:7]
+        # ② 已打包：packed-refs 里形如 "<sha> <ref>"
+        with open(os.path.join(root, ".git", "packed-refs"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == ref:
+                    return parts[0][:7]
     except Exception:
-        return "unknown"
+        pass
+    return "unknown"
 
 
 CODE_VERSION = _code_version()
