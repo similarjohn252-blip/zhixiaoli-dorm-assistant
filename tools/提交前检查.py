@@ -47,9 +47,14 @@ for f in files:
         rt_bad.append(f)
 
 # ---------- ② 真实密钥 ----------
+# ⚠️ 2026-10-15 补了一个**真盲区** ✗：原来只从 `.env` 收集密钥 ✓
+#    但固件的密钥在 `secrets.h` 里 ✓ —— 实测它里面的 CLOUD_API_KEY
+#    与 `.env` 的任何值都**不一致** ✓ → 也就是说，谁要是把那个 key 抄进文档，
+#    护栏**拦不住** ✗✗（因为它压根不认识这个值 ✓）
+#    → 现在把 `secrets.h` 里的 `#define NAME "值"` 也一起收集 ✓
 sec_bad = []
+secrets = []                      # ⚠️ 提到 if 外面 ✓ 否则 .env 缺失时会 NameError ✗
 if os.path.exists(ENV):
-    secrets = []
     for line in open(ENV, encoding="utf-8"):
         if line.lstrip().startswith("#") or "=" not in line:
             continue
@@ -57,6 +62,16 @@ if os.path.exists(ENV):
         v = v.strip()
         if len(v) >= 8 and re.search(r"KEY|SECRET|TOKEN|PASSWORD", k.upper()):
             secrets.append((k.strip(), v))
+
+SECRETS_H = os.path.join(ROOT, "code", "sketch_oct8a_copy_20261008145732", "secrets.h")
+if os.path.exists(SECRETS_H):
+    for line in open(SECRETS_H, encoding="utf-8", errors="ignore"):
+        m = re.match(r'\s*#define\s+(\w*(?:KEY|SECRET|TOKEN|PASSWORD|PASS|PWD)\w*)\s+"([^"]{8,})"',
+                     line, re.I)
+        if m:
+            secrets.append((m.group(1) + "（来自 secrets.h）", m.group(2)))
+
+if secrets:
     for f in files:
         p = os.path.join(ROOT, f)
         if not os.path.isfile(p):
