@@ -97,7 +97,7 @@ E:\Python\python.exe 全量测试.py
 ```
 code\
   run.py                启动入口（先启动自检 → 再监听 ✓）
-  server\               服务端 9 个模块（每个文件头都写了"为什么这么做" ✓）
+  server\               服务端 10 个模块（每个文件头都写了"为什么这么做" ✓）
     config.py           全部配置与路径（换网络/换端口只改 .env ✓）
     memory.py           长期记忆 + 短期记忆（含"按需注入"规则 ✓）
     speech.py           百度识别 / 合成（含 edge-tts 兜底 ✓）
