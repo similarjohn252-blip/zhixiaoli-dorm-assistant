@@ -42,6 +42,7 @@ String oledStatus = "启动中";
 String oledHeard  = "";
 String oledReply  = "";
 String oledFoot   = "";
+unsigned long volBarUntil = 0;   // 音量条显示到什么时候（0 = 不显示 ✓）
 String oledLastDrawn = "";
 bool   oledStale  = false;   // true = 屏幕上的"听到/回复"是上一轮的，标签要写成"上次"
 Audio audio; // 创建音频对象
@@ -76,9 +77,15 @@ bool oledInit() {
 }
 
 // 内容没变就不重复刷屏（硬件 I2C 刷一屏约 20ms，帮音频任务省点时间）
+// ⚠️ 新加的东西（Wi-Fi 信号 / 音量条）**必须进这个签名** ✗ ——
+//    否则"内容没变就不刷屏"会把它们挡掉，屏幕上永远看不到 ✓
 void oledRefresh(bool force = false) {
     if (!oledReady) return;
-    String sig = oledStatus + "|" + oledHeard + "|" + oledReply + "|" + oledFoot;
+    bool volVisible = (volBarUntil > 0) && ((long)(millis() - volBarUntil) < 0);
+    int  rssi = (SHOW_WIFI_RSSI && WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+    String sig = oledStatus + "|" + oledHeard + "|" + oledReply + "|" + oledFoot
+               + "|" + String(volVisible ? (int)audio.getVolume() : -1)
+               + "|" + String(rssi / 10);   // 信号按 10dBm 一档，别因抖动狂刷屏 ✓
     if (!force && sig == oledLastDrawn) return;
     oledLastDrawn = sig;
 
@@ -88,6 +95,26 @@ void oledRefresh(bool force = false) {
     oled.drawUTF8(0, 28, (String(oledStale ? "上次听到: " : "听到: ") + oledHeard).c_str());
     oled.drawUTF8(0, 44, (String(oledStale ? "上次回复: " : "回复: ") + oledReply).c_str());
     oled.drawUTF8(0, 60, oledFoot.c_str());
+
+#if SHOW_WIFI_RSSI
+    // 右上角三个信号格 ✓ —— 演示时一眼看出板子还在网上（比翻日志快得多 ✓）
+    if (rssi != 0) {
+        int lv = (rssi > -55) ? 3 : ((rssi > -70) ? 2 : 1);
+        for (int i = 0; i < 3; i++) {
+            int h = 3 + i * 3;
+            int x = 118 + i * 4;
+            if (i < lv) oled.drawBox(x, 12 - h, 3, h);
+            else        oled.drawFrame(x, 12 - h, 3, h);
+        }
+    }
+#endif
+
+    // 音量条：改完音量后在屏幕上留一会儿 ✓（网页上调音量时看得见 ✓）
+    if (volVisible) {
+        int w = (int)((long)audio.getVolume() * 116 / 21);   // 0..21 → 0..116 px
+        oled.drawFrame(5, 52, 118, 8);
+        oled.drawBox(7, 54, w, 4);
+    }
     oled.sendBuffer();
 }
 
@@ -198,6 +225,8 @@ void setup() {
         if (!err && doc["volume"].is<int>()) {
             int v = constrain(doc["volume"].as<int>(), 0, 21);
             audio.setVolume((uint8_t)v);
+            volBarUntil = millis() + VOL_BAR_MS;      // 让屏幕把音量条显示一会儿 ✓
+            oledRefresh(true);
             Serial.printf("【音量已设为 %d】\n", audio.getVolume());
             prefs.putInt("volume", (int)audio.getVolume());   // 存进 NVS：重启不忘
         } else {
@@ -220,6 +249,28 @@ void setup() {
     server.begin();
     server.enableCORS(true);   // 允许网页跨源 fetch（否则浏览器会拦掉 POST，板子根本收不到）
     Serial.println("WebServer 已启动，端口 80（已开 CORS）");
+
+    // ---- 开机大字画面：停留一会儿，专门给拍照 / 录视频 ✓ ----
+    // ⚠️ 关于「提示音」✗：这块板子的功放由音频库**独占 I2S**，
+    //    库里没有"直接吹一个音"的接口 ✓ —— 所以用这块大字画面当"开机完成"的视觉提示 ✓
+    //    （想要真"哔"一声，得加一个无源蜂鸣器接到空闲脚，再用 ledcWriteTone ✓ 见 config.h 的引脚说明）
+    if (oledReady) {
+        // ⚠️ 2026-10-15：一开始用 16px 大字，**它一家伙占 309KB flash** ✗（71% → 81%）
+        //    → 换回 12px（与正文同一套字库 ✓ **零额外体积** ✓）
+        //    字号小就用「居中 + 分隔线 + 外框」做出标题感 ✓
+        oled.clearBuffer();
+        oled.setFont(u8g2_font_wqy12_t_gb2312);
+        oled.drawRFrame(1, 1, 126, 62, 4);                    // 外框：一眼看出是"开机页" ✓
+        //     ⚠️ 是 drawRFrame（U8g2 的命名 ✓），不是 drawRoundedFrame ✗（那是别的库 ✓）
+        oled.drawUTF8(46, 22, "智小理");                       // 3 字 × 12px = 36 → 居中 ✓
+        oled.drawHLine(34, 27, 60);                           // 分隔线 ✓
+        oled.drawUTF8(28, 42, "宿舍事务助手");                  // 6 字 = 72 → 居中 ✓
+        oled.drawUTF8(12, 57, ("IP " + WiFi.localIP().toString()).c_str());
+        oled.sendBuffer();
+        delay(BOOT_SPLASH_MS);
+        oledLastDrawn = "";                              // 让下一帧必定重画 ✓
+    }
+
     oledStatus = "待机 按 BOOT 说话";
     oledFoot   = "IP " + WiFi.localIP().toString();
     oledRefresh(true);

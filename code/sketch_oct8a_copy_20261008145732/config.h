@@ -51,8 +51,7 @@
 #define I2S_LRC  6
 #define I2S_DIN  7
 
-// ---- 三颗 LED：真实硬件动作（工程债 C2）----
-// 语义：绿 = 已受理 / 蓝 = 处理中 / 红 = 警示
+// ---- 三颗 LED：真实硬件动作（工程债 C2）----// 语义：绿 = 已受理 / 蓝 = 处理中 / 红 = 警示
 //       NONE = 全灭（这一轮没有硬件动作） / PLAY_MUSIC = 不动灯（保留上一状态）
 // 接线：GPIO --(220Ω 电阻；蓝灯建议 100Ω)--> LED 长脚(阳极)；LED 短脚(阴极) --> GND
 // ⚠️ 引脚号按你实际接线改这三行即可；避开 IO33~37（本板 N16R8 的 OPI PSRAM 占用）
@@ -60,3 +59,8 @@
 #define LED_GREEN_PIN 4
 #define LED_BLUE_PIN  12
 #define LED_RED_PIN   13
+
+// ---- 屏幕显示（2026-10-15 加：拍照片/录视频更好看，也更好排障 ✓）----
+#define BOOT_SPLASH_MS 1600    // 开机大字画面停留多久（足够拍照 ✓）
+#define VOL_BAR_MS     2500    // 音量条显示多久（网页调音量时看得见 ✓）
+#define SHOW_WIFI_RSSI 1       // 1 = 右上角画 Wi-Fi 信号格 ✓（演示时一眼看出还连着网 ✓）
