@@ -1,4 +1,4 @@
-"""节依赖分析：拆包前用它算出"这一节需要 import 什么"。
+"""节依赖分析：算出"这一节需要 import 什么"。
 
 背景：人工列导入清单会漏（本项目 music.py 就漏了 traceback / memory ✗）。
 本工具用 AST 分析，只认事实：**在这几节里被用到、但没有在这些节里定义/导入的名字**。
@@ -6,8 +6,8 @@
 用法：
     E:\\Python\\python.exe tools\\节依赖.py <文件> <节标题关键词> [更多关键词...]
 
-例：
-    E:\\Python\\python.exe tools\\节依赖.py code\\mock_zhixiaoli.py 大脑 意图
+例（⚠️ 2026-10-15 修 ✗：原例写的是 code\\mock_zhixiaoli.py —— 拆包前的单文件，早已删掉 ✓）：
+    E:\\Python\\python.exe tools\\节依赖.py code\\server\\music.py 音乐
 （按 `# ===== 标题 =====` 分节；匹配到的节会合并分析）
 """
 import ast
