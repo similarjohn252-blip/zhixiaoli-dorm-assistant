@@ -207,6 +207,30 @@ def music_api():
 # 为什么需要：网页部署到"评委能访问的地方"后，和板子就不在同一网络了 ✗
 # 私有地址 192.168.137.x 跨网不可达 → 统一由服务端转发（详见 device.py）
 # 子路径与板子**完全一致**，所以前端只要把 base 换成 <服务端>/v1/device 即可 ✓
+@app.route("/v1/board", methods=["GET"])
+def board_public():
+    """给网页用的【只读 · 免 token · 已脱敏】的板子状态 ✓
+
+    ⚠️ 2026-10-15 新增的原因 ✗：
+      《对接说明》原来教网页同学把 token 填进前端 JS ✗ ——
+      但**浏览器里存不住秘密** ✓（F12 一看就有 ✓）→ 照做等于把 token 公开 ✗
+      而网页真正想显示的只是"板子在线吗 / 音量多少" ✓ → 那就给一个白名单接口 ✓
+      · **免 token** ✓（纯只读 ✓）
+      · **只回白名单字段** ✓：绝不回板子 IP ✗、绝不回 profile（姓名/房号）✗、绝不回原始异常 ✗
+    写操作（改音量、写 profile）仍然只在带 token 的 /v1/device/* 里 ✓（网页不该有这些能力 ✓）
+    """
+    st = device.board_status(timeout=1.5)
+    out = {"online": bool(st.get("online"))}
+    if out["online"]:
+        v = device.board_volume_get()
+        if v.get("ok"):
+            out["volume"] = v.get("volume")
+            out["steps"] = v.get("steps")
+    else:
+        out["error"] = "板子离线"
+    return jsonify(out), 200
+
+
 @app.route("/v1/device/status", methods=["GET"])
 def device_status():
     return jsonify(device.board_status()), 200
