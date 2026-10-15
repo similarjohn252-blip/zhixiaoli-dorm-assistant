@@ -23,65 +23,66 @@ _memory = {"facts": [], "events": []}   # facts=长期已知信息，events=历�
 _history = []                           # 短期记忆：[(用户说的, 助手回的)]，只在内存里
 
 _EVENT_KEEP = 200                       # 历史事件最多留这么多条 ✓
-_conn = None
 
 
 # ================= 落地层：SQLite（工程债 B6）=================
 def _db():
-    """一个进程一个连接（单机单用户够用 ✓）；打不开就退回"只在内存里记" ✗ 但绝不崩 ✓"""
-    global _conn
-    if _conn is None:
-        try:
-            _conn = sqlite3.connect(MEMORY_DB)
-            _conn.execute("PRAGMA journal_mode=WAL")      # 断电/并发更安全 ✓
-            _conn.execute("PRAGMA synchronous=NORMAL")
-            _conn.execute("CREATE TABLE IF NOT EXISTS facts ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "ts TEXT, text TEXT UNIQUE)")
-            _conn.execute("CREATE TABLE IF NOT EXISTS events ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "ts TEXT, user TEXT, reply TEXT)")
-            _conn.commit()
-        except Exception as e:
-            print(f"[记忆] 打不开记忆库（{MEMORY_DB}）：{e} —— 本次只在内存里记 ✗", flush=True)
-            _conn = None
-    return _conn
+    """开一个**短连接** ✓ —— 绝不复用、也绝不跨线程 ✗
+
+    ⚠️ 2026-10-15 实测踩到（**由用户一句"记忆存在哪"问出来的** ✗）：
+       Flask 是多线程的（`app.run(threaded=True)` ✓），而 sqlite3 的连接
+       **只能在同一线程里使用** ✗ → 复用模块级长连接时，请求线程里一写就抛：
+         "SQLite objects created in a thread can only be used in that same thread"
+       → `save_memory()` 把它 catch 掉只打印 ✓ → **接口报成功、库里却是空的** ✗✗
+       表现：加事实返回 `added:true`，但直接读库是空的、重启就丢 ✓
+    做法与 `tickets.py` 完全一致 ✓：**每次短连接 + WAL**（它早就踩过同一个坑 ✓）
+    """
+    os.makedirs(os.path.dirname(MEMORY_DB) or ".", exist_ok=True)
+    c = sqlite3.connect(MEMORY_DB, timeout=5)
+    c.execute("PRAGMA journal_mode=WAL")          # 断电/并发更安全 ✓
+    c.execute("PRAGMA synchronous=NORMAL")
+    c.execute("CREATE TABLE IF NOT EXISTS facts ("
+              "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, text TEXT UNIQUE)")
+    c.execute("CREATE TABLE IF NOT EXISTS events ("
+              "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, user TEXT, reply TEXT)")
+    return c
 
 
 def _migrate_old_json():
     """把旧的 记忆.json 导进数据库（只导一次 ✓）；**旧文件保留**当备份 ✓"""
+    if not os.path.exists(MEMORY_FILE):
+        return 0
     c = _db()
-    if c is None or not os.path.exists(MEMORY_FILE):
-        return 0
-    if (c.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
-            or c.execute("SELECT COUNT(*) FROM events").fetchone()[0]):
-        return 0                       # 库里已经有东西 → 不重复导 ✓
     try:
-        with open(MEMORY_FILE, encoding="utf-8") as f:
-            m = json.load(f)
-    except Exception as e:
-        print(f"[记忆] 旧文件读不了，跳过迁移：{e}", flush=True)
-        return 0
-    facts = [str(x) for x in (m.get("facts") or [])][-MEMORY_MAX_FACTS:]
-    events = list(m.get("events") or [])[-_EVENT_KEEP:]
-    for x in facts:
-        c.execute("INSERT OR IGNORE INTO facts (ts, text) VALUES (?, ?)",
-                  (time.strftime("%Y-%m-%d %H:%M:%S"), x))
-    for e in events:
-        c.execute("INSERT INTO events (ts, user, reply) VALUES (?, ?, ?)",
-                  (e.get("time", ""), e.get("user", ""), e.get("reply", "")))
-    c.commit()
-    if facts or events:
-        print(f"[记忆] 已从旧文件迁移 {len(facts)} 条已知信息 + {len(events)} 条历史事件 ✓"
-              f"（旧文件保留为备份：{os.path.basename(MEMORY_FILE)} ✓）", flush=True)
-    return len(facts) + len(events)
+        if (c.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+                or c.execute("SELECT COUNT(*) FROM events").fetchone()[0]):
+            return 0                   # 库里已经有东西 → 不重复导 ✓
+        try:
+            with open(MEMORY_FILE, encoding="utf-8") as f:
+                m = json.load(f)
+        except Exception as e:
+            print(f"[记忆] 旧文件读不了，跳过迁移：{e}", flush=True)
+            return 0
+        facts = [str(x) for x in (m.get("facts") or [])][-MEMORY_MAX_FACTS:]
+        events = list(m.get("events") or [])[-_EVENT_KEEP:]
+        for x in facts:
+            c.execute("INSERT OR IGNORE INTO facts (ts, text) VALUES (?, ?)",
+                      (time.strftime("%Y-%m-%d %H:%M:%S"), x))
+        for e in events:
+            c.execute("INSERT INTO events (ts, user, reply) VALUES (?, ?, ?)",
+                      (e.get("time", ""), e.get("user", ""), e.get("reply", "")))
+        c.commit()
+        if facts or events:
+            print(f"[记忆] 已从旧文件迁移 {len(facts)} 条已知信息 + {len(events)} 条历史事件 ✓"
+                  f"（旧文件保留为备份：{os.path.basename(MEMORY_FILE)} ✓）", flush=True)
+        return len(facts) + len(events)
+    finally:
+        c.close()
 
 
 def load_memory():
     _migrate_old_json()
     c = _db()
-    if c is None:
-        return
     try:
         rows = c.execute("SELECT text FROM facts ORDER BY id DESC LIMIT ?",
                          (MEMORY_MAX_FACTS,)).fetchall()
@@ -93,12 +94,20 @@ def load_memory():
               f"历史事件 {len(_memory['events'])} 条", flush=True)
     except Exception as e:
         print(f"[记忆] 读取失败（忽略，按空记忆跑）: {e}", flush=True)
+    finally:
+        c.close()
 
 
 def save_memory():
-    """把内存这份记忆**整份**写进数据库（`with` = 事务：要么全成、要么全不动 ✓）"""
-    c = _db()
-    if c is None:
+    """把内存这份记忆**整份**写进数据库（`with c` = 事务：要么全成、要么全不动 ✓）
+
+    ⚠️ 失败时必须**看得见** ✗ —— 上一次的教训是"只打印、被淹没"，
+       接口却报成功 ✓。这里的错误信息里带上数据库路径与异常类型 ✓
+    """
+    try:
+        c = _db()
+    except Exception as e:
+        print(f"[记忆] 打开失败（{MEMORY_DB}）：{type(e).__name__}: {e}", flush=True)
         return
     try:
         with c:
@@ -111,7 +120,9 @@ def save_memory():
                           [(e.get("time", ""), e.get("user", ""), e.get("reply", ""))
                            for e in _memory["events"]])
     except Exception as e:
-        print(f"[记忆] 保存失败: {e}", flush=True)
+        print(f"[记忆] 保存失败（{MEMORY_DB}）：{type(e).__name__}: {e}", flush=True)
+    finally:
+        c.close()
 
 
 # ================= 记忆 1：长期记忆 =================

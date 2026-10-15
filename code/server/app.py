@@ -22,7 +22,8 @@ from . import brain, device, memory, tickets, trace
 from .brain import handle_query
 
 from .config import (
-    ACCESS_LOG, API_TOKEN, AUDIO_DIR, BOARD_HOST, CODE_VERSION, MEMORY_FILE,
+    ACCESS_LOG, API_TOKEN, AUDIO_DIR, BOARD_HOST, CODE_VERSION, MEMORY_DB,
+    MEMORY_FILE,
     MIC_LAST_WAV, STARTED_AT,
 )
 from .music import (
@@ -253,8 +254,13 @@ def health():
     except Exception as e:
         checks["disk"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-    checks["memory"] = {"ok": True, "file": MEMORY_FILE,
-                        "exists": os.path.exists(MEMORY_FILE),
+    # ⚠️ 2026-10-15 修正 ✗：记忆已迁到 SQLite（工程债 B6），
+    #    这里原来报的是 MEMORY_FILE（记忆.json）—— 典型的"代码写 A、自检报 B" ✓
+    #    旧文件保留作迁移来源/备份 ✓，所以两个都报出来 ✓
+    checks["memory"] = {"ok": True,
+                        "file": MEMORY_DB,
+                        "exists": os.path.exists(MEMORY_DB),
+                        "legacy_json": MEMORY_FILE,
                         "facts": len(memory._memory.get("facts", []))}
 
     critical = [k for k in ("disk", "memory", "cloud") if not checks[k]["ok"]]
