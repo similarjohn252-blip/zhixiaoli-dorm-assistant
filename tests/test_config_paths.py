@@ -13,7 +13,9 @@ import sys
 
 from server import config
 
-CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ⚠️ 同 test_memory_resilience.py：项目根是 tests/ 的**上一层** ✗（原来多取了一层 ✓）
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CODE_DIR = os.path.join(ROOT, "code")
 
 
 def test_memory_db_is_set_and_db_suffix():
@@ -32,14 +34,15 @@ def test_empty_env_value_derives_instead_of_crashing():
     #    受限沙箱/CI 里会拒绝在系统临时区创建子目录（实测 WinError 5 ✓），
     #    而且它**时好时坏** ✗（本次就因此让一条测试偶发挂掉 ✓）
     #    统一放项目内：与 conftest.py 同一个道理 ✓
-    tmp = os.path.join(os.path.dirname(CODE_DIR), ".pytest_tmp", "emptyvar")
+    tmp = os.path.join(ROOT, ".pytest_tmp", "emptyvar")
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp, exist_ok=True)
     env = dict(os.environ)
     env["ZHIXIAOLI_MEMORY_DB"] = ""
     env["ZHIXIAOLI_MEMORY_FILE"] = os.path.join(tmp, "记忆.json")
     code = (
-        "import sys; sys.path.insert(0, r'" + os.path.join(CODE_DIR, "code") + "'); "
+        # ⚠️ CODE_DIR 现在**已经**是 code 目录 ✓ —— 别再 join 一次变成 code\code ✗（刚踩过 ✓）
+        "import sys; sys.path.insert(0, r'" + CODE_DIR + "'); "
         "from server import config; "
         "print(config.MEMORY_DB)"
     )

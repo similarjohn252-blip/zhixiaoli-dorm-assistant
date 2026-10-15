@@ -38,14 +38,23 @@ def _db():
     做法与 `tickets.py` 完全一致 ✓：**每次短连接 + WAL**（它早就踩过同一个坑 ✓）
     """
     os.makedirs(os.path.dirname(MEMORY_DB) or ".", exist_ok=True)
-    c = sqlite3.connect(MEMORY_DB, timeout=5)
-    c.execute("PRAGMA journal_mode=WAL")          # 断电/并发更安全 ✓
-    c.execute("PRAGMA synchronous=NORMAL")
-    c.execute("CREATE TABLE IF NOT EXISTS facts ("
-              "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, text TEXT UNIQUE)")
-    c.execute("CREATE TABLE IF NOT EXISTS events ("
-              "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, user TEXT, reply TEXT)")
-    return c
+    try:
+        c = sqlite3.connect(MEMORY_DB, timeout=5)
+        c.execute("PRAGMA journal_mode=WAL")          # 断电/并发更安全 ✓
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("CREATE TABLE IF NOT EXISTS facts ("
+                  "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, text TEXT UNIQUE)")
+        c.execute("CREATE TABLE IF NOT EXISTS events ("
+                  "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, user TEXT, reply TEXT)")
+        return c
+    except Exception as e:
+        # ⚠️ 绝不能让异常冒到 import 期 ✗ —— 2026-10-15 发现这是 B6 引入的**回归**：
+        #    旧 JSON 版本是"捕获所有异常、按空记忆跑"✓，而新版本会让
+        #    **库文件损坏时服务端直接起不来** ✗（连屏幕报错都没有 ✓）。
+        #    这里退回"只在内存里记"✓：这一次会话的记忆不持久，但**服务端能起来** ✓
+        print(f"[记忆] 打不开记忆库（{MEMORY_DB}）：{type(e).__name__}: {e}", flush=True)
+        print("[记忆] 本次只在内存里记 ✗（重启会丢，但服务端照常工作 ✓）", flush=True)
+        return None
 
 
 def _migrate_old_json():
@@ -53,6 +62,8 @@ def _migrate_old_json():
     if not os.path.exists(MEMORY_FILE):
         return 0
     c = _db()
+    if c is None:                 # 库打不开 → 迁移也没意义 ✓（不崩 ✓）
+        return 0
     try:
         if (c.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
                 or c.execute("SELECT COUNT(*) FROM events").fetchone()[0]):
@@ -83,6 +94,8 @@ def _migrate_old_json():
 def load_memory():
     _migrate_old_json()
     c = _db()
+    if c is None:                 # 库打不开 → 就按空记忆跑 ✓（旧 JSON 版本就是这个兜底 ✓）
+        return
     try:
         rows = c.execute("SELECT text FROM facts ORDER BY id DESC LIMIT ?",
                          (MEMORY_MAX_FACTS,)).fetchall()
@@ -104,10 +117,8 @@ def save_memory():
     ⚠️ 失败时必须**看得见** ✗ —— 上一次的教训是"只打印、被淹没"，
        接口却报成功 ✓。这里的错误信息里带上数据库路径与异常类型 ✓
     """
-    try:
-        c = _db()
-    except Exception as e:
-        print(f"[记忆] 打开失败（{MEMORY_DB}）：{type(e).__name__}: {e}", flush=True)
+    c = _db()
+    if c is None:                 # 只打印过原因了 ✓，这里安静返回（save_memory 的语义就是"尽力保存"✓）
         return
     try:
         with c:

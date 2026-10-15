@@ -26,7 +26,7 @@ CASES = {
     1: "平台地址不可达（云端连不上）",
     2: "平台退化（模型收到 null，只会打招呼）",
     3: "音频目录非法（配置写错）",
-    4: "记忆文件损坏（垃圾 JSON）",
+    4: "记忆库损坏（垃圾 记忆.db）",
     5: "板子掉线（服务端代理的失败分支）",
     6: "百度语音鉴权失败（Key 错/额度耗尽）",
 }
@@ -49,10 +49,15 @@ def run_case(n: int):
             f.write("我是文件，不是目录")
         os.environ["ZHIXIAOLI_AUDIO_DIR"] = os.path.join(blocker, "sub")  # 文件下面建目录 → 必然失败
     elif n == 4:
-        bad = os.path.join(TMP, "坏记忆.json")
-        with open(bad, "w", encoding="utf-8") as f:
-            f.write("{这不是合法 JSON ✗ 半截内容")
-        os.environ["ZHIXIAOLI_MEMORY_FILE"] = bad
+        # ⚠️ 2026-10-15 改 ✗：以前造的是"坏 JSON" ✓ —— 但记忆迁 SQLite 后，
+        #    JSON 只在**首次迁移**时被读 ✓，坏掉最多"跳过迁移"✓，不致命 ✗
+        #    真正致命的是【坏 记忆.db】✓：load_memory() 在 import 期就会抛 ✗
+        #    → 服务端根本起不来 ✓（这条演练就该测它 ✓）
+        bad_db = os.path.join(TMP, "坏记忆.db")
+        with open(bad_db, "wb") as f:
+            # ⚠️ bytes 字面量只能是 ASCII ✗（写中文会 SyntaxError ✓ —— 刚踩过 ✓）
+            f.write(b"SQLite format 3\x00" + b"\x00" * 200 + b"not a real db at all")
+        os.environ["ZHIXIAOLI_MEMORY_DB"] = bad_db
     elif n == 5:
         os.environ["ZHIXIAOLI_BOARD_HOST"] = "127.0.0.1"
         os.environ["ZHIXIAOLI_BOARD_TIMEOUT"] = "2"
