@@ -168,18 +168,40 @@ _PROGRESS_WORDS = ("进度", "修好", "来人", "什么时候来", "多久能�
                    "修得怎么样", "修了吗")
 
 
-def _guess_room() -> str:
-    """从长期记忆里猜房间号（例如"用户住3 栋 502" → "3 栋 502"）。
+def _room_in(text) -> str:
+    """从**任意一句话**里提房间号 ✓（例如用户答"3 栋 502" ✓）
 
-    为什么不问平台：房间号是我们自己记的事实（memory），问平台反而会编 ✗
     ⚠️ 正则要允许**中间有空格**："3 栋 502" —— 上一版写成「栋后面不含空白」，
        结果只截出"3 栋"、把 502 丢了（自测当场抓到 ✓）
     """
+    m = re.search(r"(\d+\s*(?:栋|号楼|公寓|舍)\s*\d{0,4}|\d{3,5}\s*室?)", text or "")
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+
+def _guess_room() -> str:
+    """从长期记忆里猜房间号（"用户住 3 栋 502" → "3 栋 502"）。
+
+    为什么不问平台：房间号是我们自己记的事实（memory），问平台反而会编 ✗
+    """
     for f in reversed(memory._memory.get("facts", [])):
-        m = re.search(r"(\d+\s*(?:栋|号楼|公寓|舍)\s*\d{0,4}|\d{3,5}\s*室?)", f or "")
-        if m:
-            return re.sub(r"\s+", " ", m.group(1)).strip()
+        room = _room_in(f)
+        if room:
+            return room
     return ""
+
+
+# ================= 补槽位：报修缺房间号就先问一句（2026-10-15 新增）=================
+# 起因 ✗：`_guess_room()` 只在**记忆**里找房间 ✓ → 记忆是空的时候，
+#   原来会直接建一张**房间为空**的工单 ✗（用户说了半天，工单上却没地址 ✓）
+#   → 与其建一张残缺的单，不如**先问一句** ✓ 然后在下一句里补上 ✓✓
+# 这是"智能体该有的样子"里最便宜的一种：**缺什么就问什么** ✓
+#
+# 设计取舍 ✓：
+#   · 状态放**模块级**（单用户、单设备 ✓ 够用 ✓ 不引数据库 ✓）
+#   · 带 **120 秒超时** ✓ —— 免得十分钟后一句无关的话被当成"补房间" ✗
+#   · 追问时**不建单** ✓、**不碰平台** ✓（本地决定 ✓ 断网也能用 ✓✓）
+_PENDING_TTL = 120.0
+_pending = {"kind": "", "note": "", "ts": 0.0}
 
 
 def _finish(query, reply, action, source):
@@ -268,13 +290,36 @@ def handle_query(query):
                      f"「{tickets.status_text(t['status'])}」。")
             return _finish(query, reply, tickets.action_for(t["status"]), "本地台账")
 
+    # 2.5) ⭐ 补槽位：上一句在报修、但没房间号 → 我们追问了一句 ✓
+    #      这一句如果给了房间号，就补上并**建单** ✓✓（必须排在进度/报修判断之前 ✓）
+    if _pending["kind"] == "repair" and (time.time() - _pending["ts"]) < _PENDING_TTL:
+        room = _room_in(query)
+        if room:
+            with trace.timed("建单"):
+                t = tickets.create(room=room,
+                                   category=tickets.guess_category(_pending["note"]),
+                                   note=_pending["note"] + " ｜ " + query)
+            _pending.update(kind="", note="", ts=0.0)
+            print(f"[工单] 补上房间号后建单 {t['id']} 房间={room}", flush=True)
+            return _finish(
+                query,
+                f"好的，{room} 的报修已经登记好啦，工单号 {t['id']}，师傅会尽快联系你。",
+                "LED_GREEN_ON", "本地补槽位")
+
     # 3) 报修 → **真的建一张工单**（工程债 C1：把"假装办事"换成"真产出"）
     #    注意：这一支**不提前返回** —— 答案措辞仍交给平台（它说得更自然），
     #    我们只负责"真建单"，最后把**真实工单号**补进回答 ✓
     repair_ticket = None
     if any(w in query for w in _REPAIR_WORDS):
+        room = _guess_room()
+        if not room:
+            # ⭐ 缺房间号 → **先问，不建单** ✓（否则就是一张没地址的废单 ✗）
+            _pending.update(kind="repair", note=query, ts=time.time())
+            print(f"[追问] 报修但没房间号，先问一句：{query}", flush=True)
+            return _finish(query, "好的，请问是哪个房间？比如「3 栋 502」。",
+                           "NONE", "本地追问")
         with trace.timed("建单"):
-            repair_ticket = tickets.create(room=_guess_room(),
+            repair_ticket = tickets.create(room=room,
                                            category=tickets.guess_category(query),
                                            note=query)
         print(f"[工单] 新建 {repair_ticket['id']} 房间={repair_ticket['room'] or '未登记'} "
