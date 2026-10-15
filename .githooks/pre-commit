@@ -17,4 +17,14 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# ---------- 快测试：pytest 必须全过 ✓ ----------
+# 2026-10-15 加：那天我「红了还提交」两次 ✗ —— 都是因为钩子只跑 ruff、不跑 pytest ✗
+# pytest 只要约 1 秒 ✓ 顺手把【失败的用例名】也打出来 ✓（我手看时总用尾巴，名字全丢了 ✗）
+PYTEST_OUT=$("$PY" -m pytest tests -q --no-header -rf 2>&1)
+if [ $? -ne 0 ]; then
+    echo "[提交前检查] x 快测试没过（pytest）—— 红了不许提交 ✓"
+    echo "$PYTEST_OUT" | tail -25
+    exit 1
+fi
+
 exec "$PY" "$(git rev-parse --show-toplevel)/tools/提交前检查.py" $files
