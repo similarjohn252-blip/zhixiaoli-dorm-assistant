@@ -19,6 +19,25 @@ def test_room_in_extracts():
     assert brain._room_in("") == ""
 
 
+def test_is_repair_covers_real_phrasings():
+    """报修判定：**16 句真实说法全要认出来** ✓，而规定类问题**不能误判** ✗
+
+    ⚠️ 2026-10-15 实测：原来靠 12 个整词，16 句里只触发 6 句（37%）✗
+       → 改成「设备词 + 故障特征」组合后，应**全覆盖** ✓
+    """
+    should = ["我们宿舍的灯坏了", "空调不制冷", "空调坏了", "水龙头漏水", "厕所堵了",
+              "网连不上", "插座没电", "门锁坏了", "窗户关不上", "有点吵",
+              "宿舍太脏了", "热水器不出热水", "风扇不转", "灯泡闪", "床板断了",
+              "我想报修"]
+    for q in should:
+        assert brain._is_repair(q), f"漏掉了：{q}"        # 漏 = 少建一张单 ✗
+
+    must_not = ["宿舍能用大功率电器吗", "违规怎么处理", "校训是什么",
+                "宿舍几点关门", "我想订会议室", "我有点不舒服"]
+    for q in must_not:
+        assert not brain._is_repair(q), f"误判了：{q}"     # 误判 = 凭空建垃圾单 ✗
+
+
 def test_ask_back_then_fill(monkeypatch):
     """① 缺房间 → 先问、不建单 ② 补房间 → 建单、回答带工单号 ✓"""
     monkeypatch.setattr(brain, "make_tts", lambda text: "")   # 不碰 TTS 网络 ✓
