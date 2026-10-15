@@ -300,6 +300,20 @@ void loop() {
         oledRefresh(true);
     }
 
+    // ---- Wi-Fi 掉了要自己往回连（2026-10-15 实测踩到 ✗）----
+    //   服务端长时间不可达 / 电脑热点抖过一次之后，板子会**一直掉在网外** ✗ ——
+    //   原代码只在按键时打印一句，**从不重连** ✓（ESP32 带静态 IP 时自动重连不可靠）
+    //   每 8 秒试一次，别做成忙等 ✓
+    static unsigned long lastWifiTry = 0;
+    if (WiFi.status() != WL_CONNECTED && millis() - lastWifiTry > 8000) {
+        lastWifiTry = millis();
+        Serial.printf("【Wi-Fi】掉线（status=%d），正在重连…\n", WiFi.status());
+        WiFi.reconnect();
+        oledStatus = "Wi-Fi 掉线，重连中";
+        oledFoot   = "看电脑热点开着吗";
+        oledRefresh(true);
+    }
+
     // ---- 按一下 BOOT 键：说一句话 → 上传识别 → 播报回复 ----
     static bool lastBtn = HIGH;
     bool btn = digitalRead(BUTTON_PIN);
@@ -308,6 +322,11 @@ void loop() {
     if (pressed) {
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("【麦克风】Wi-Fi 没连上，先解决网络再说话");
+            // 屏幕也要说实话 ✗ —— 原来只打串口，屏幕还留着上一次的"上传失败"，
+            // 会让人以为还是服务端的问题（2026-10-15 实测被误导 ✓）
+            oledStatus = "Wi-Fi 没连上";
+            oledFoot   = "电脑热点开着吗";
+            oledRefresh(true);
         } else if (audio.isRunning()) {
             Serial.println("【麦克风】正在播报，等它说完再按");
         } else {
