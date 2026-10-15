@@ -81,11 +81,26 @@ def edge_tts_generate(text, out_path):
     return out_path
 
 
+def _engine_chain():
+    """把 TTS_ENGINE 解析成【有序】引擎链 ✓
+
+    ⚠️ 2026-10-15 改：原来只认 "baidu" / "edge" 两个写死的名字 ✗ →
+       "先试 edge、失败自动退回百度"这种需求做不到 ✓
+       现在支持逗号分隔的有序链 ✓：ZHIXIAOLI_TTS_ENGINE=edge,baidu
+
+    为什么这条很重要：edge-tts 是**非官方接口** ✗（它借用 Edge 浏览器的朗读通道 ✓）
+      演示当天它可能突然失效 ✓ → 必须有**自动退路** ✓，否则现场就是"没声音" ✗
+    （老取值行为完全不变 ✓：baidu → 只百度 ✓；edge → 只 edge ✓；写错 → 两条都试 ✓）
+    """
+    known = {"baidu": baidu_tts, "edge": edge_tts_generate}
+    names = [n.strip().lower() for n in str(TTS_ENGINE).split(",") if n.strip()]
+    chain = [known[n] for n in names if n in known]
+    return chain or [baidu_tts, edge_tts_generate]
+
+
 def synthesize(text, out_path):
-    """返回实际使用的引擎名；全部失败则抛异常。"""
-    engines = {"baidu": [baidu_tts], "edge": [edge_tts_generate]}.get(
-        TTS_ENGINE, [baidu_tts, edge_tts_generate]
-    )
+    """按配置的【顺序】逐个引擎试，返回实际成功的那一个名；全部失败则抛异常。"""
+    engines = _engine_chain()
     last_err = None
     for fn in engines:
         try:
