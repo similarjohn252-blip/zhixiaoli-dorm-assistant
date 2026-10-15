@@ -109,7 +109,7 @@ code\
     preflight.py        启动前自检（fail-fast ✓）
     app.py              Flask 路由（只做"接线" ✓）
   sketch_oct8a_copy_20261008145732\   固件（.ino + config.h 硬件调参 + secrets.h 网络密钥 + sketch.yaml）
-tools\                  自测 / 诊断 / 维护脚本（17 个，见下）
+tools\                  自测 / 诊断 / 维护脚本（18 个，见下；含清空记忆.py ✓）
 tests\                  pytest 快测试层（纯逻辑 30 项 ✓ 0.7 秒 ✓ 不联网 ✓）
 _材料\                  赛题原始材料（PDF 提取文本、手册、选题方向）
 语音\                   运行时产物：播报音频、最近录音、放歌缓存、日志（已 gitignore ✓）

@@ -7,9 +7,9 @@
   → 所以必须用 `os.environ.get(name) or 默认值` ✓，并**用一个子进程把它测出来** ✓
 """
 import os
+import shutil
 import subprocess
 import sys
-import tempfile
 
 from server import config
 
@@ -28,7 +28,13 @@ def test_memory_db_override_is_honored():
 
 def test_empty_env_value_derives_instead_of_crashing():
     """空串场景必须自动推导成 .db，而不是炸 ✗（子进程里验，避免污染本进程 ✓）"""
-    tmp = tempfile.mkdtemp(prefix="zxlempty_")
+    # ⚠️ 别用 tempfile.mkdtemp()（落在 %TEMP%）✗ ——
+    #    受限沙箱/CI 里会拒绝在系统临时区创建子目录（实测 WinError 5 ✓），
+    #    而且它**时好时坏** ✗（本次就因此让一条测试偶发挂掉 ✓）
+    #    统一放项目内：与 conftest.py 同一个道理 ✓
+    tmp = os.path.join(os.path.dirname(CODE_DIR), ".pytest_tmp", "emptyvar")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
     env = dict(os.environ)
     env["ZHIXIAOLI_MEMORY_DB"] = ""
     env["ZHIXIAOLI_MEMORY_FILE"] = os.path.join(tmp, "记忆.json")
