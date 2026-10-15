@@ -17,7 +17,7 @@ import traceback
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from . import brain, device, memory, tickets
+from . import brain, device, memory, tickets, trace
 
 from .brain import handle_query
 
@@ -39,6 +39,21 @@ try:
 except Exception:
     pass
 app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无害 ✓）
+
+
+# ================= 链路追踪（工程债 B4）=================
+# 每次请求一个短 id（也接受调用方用 X-Request-Id 指定 ✓ —— 板子后续可以自己传），
+# 并把 id **回写到响应头**：客户端拿着它就能一次串出服务端全链路 ✓
+# （出错时也回写 ✓ —— 异常响应最需要这个 id）
+@app.before_request
+def _trace_start():
+    trace.start(request.headers.get("X-Request-Id") or None)
+
+
+@app.after_request
+def _trace_header(resp):
+    resp.headers["X-Request-Id"] = trace.rid()
+    return resp
 
 _BOOT_TS = time.time()          # 给 /v1/health 算运行时长
 
@@ -277,7 +292,11 @@ def serve_audio(filename):
 def _any_error(e):
     """兜底：任何未捕获异常也返回 JSON，避免 ESP32 收到 HTML 而报 InvalidInput。"""
     traceback.print_exc()
+    # 异常响应最需要链路 id（最难查的那一次，反而是唯一没有线索的 ✗）
+    trace.log("error", error=f"{type(e).__name__}: {e}", path=request.path)
+    print(f"[链路 {trace.rid()}] ✗ {type(e).__name__}: {e}", flush=True)
     return jsonify({"voice_text": "", "device_action": "NONE",
+                    "request_id": trace.rid(),
                     "error": f"{type(e).__name__}: {e}"}), 200
 
 

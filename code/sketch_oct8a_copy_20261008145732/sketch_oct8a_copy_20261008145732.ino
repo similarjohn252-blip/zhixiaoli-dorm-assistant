@@ -373,6 +373,11 @@ void handleServerResponse(String response) {
         Serial.printf("【记忆】已知信息 %d 条，本轮上下文 %d 轮\n", memCount, histCount);
     }
 
+    // 链路 id（工程债 B4）：出问题时把这一串发给服务端，
+    // 一条命令（tools\链路日志.py <id>）就能串出本次请求的全链路与各段耗时 ✓
+    String reqId = responseDoc["request_id"] | "";
+    if (reqId != "") Serial.println("【链路ID】: " + reqId);
+
     String voiceText = "";
     String deviceAction = "";
     String audioUrl = "";

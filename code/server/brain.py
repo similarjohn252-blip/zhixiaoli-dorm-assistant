@@ -15,7 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
-from . import tickets
+from . import tickets, trace
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -183,18 +183,27 @@ def _guess_room() -> str:
 
 
 def _finish(query, reply, action, source):
-    """统一收尾：写记忆 + 合成音频 + 组装返回。
+    """统一收尾：写记忆 + 合成音频 + 组装返回 + 打一行链路总览。
 
     handle_query 的正常出口都走这里 —— 避免"新加一个分支就忘了记记忆/合成音频" ✗
     """
     memory.remember_turn(query, reply)
+    with trace.timed("TTS"):
+        audio_url = make_tts(reply)
+    trace.log("chat", query=query, reply=reply, action=action, source=source,
+              total=trace.total(), timings=trace.timings())
+    trace.summary(f"动作={action} 来源={source}")
     return {
         "voice_text": reply,
         "device_action": action,
         "source": source,
-        "audio_url": make_tts(reply),
+        "audio_url": audio_url,
         "memory": len(memory._memory["facts"]),
         "history": len(memory._history),
+        # 链路追踪（工程债 B4）：id 与各段耗时随响应回给板子/网页 ✓
+        # 于是"用户侧现象"与"服务端日志"能对上；板子串口也会打这个 id ✓
+        "request_id": trace.rid(),
+        "timings": trace.timings(),
     }
 
 
@@ -243,14 +252,16 @@ def handle_query(query):
     query = (query or "").strip()
 
     # 1) 先从这句话里提取长期记忆（"我叫小李"、"记住…"）
-    for fact in memory.extract_facts(query):
-        memory.add_fact(fact)
+    with trace.timed("记忆"):
+        for fact in memory.extract_facts(query):
+            memory.add_fact(fact)
 
     # 2) 先判"问报修进度" —— **必须排在报修前面** ✗
     #    否则"我报修的进度怎么样了"会因为含"报修"两个字被当成新报修，
     #    凭空多建一张垃圾工单，进度还查成了那张新的（烟测实测踩到 ✓）
     if any(w in query for w in _PROGRESS_WORDS):
-        t = tickets.newest()
+        with trace.timed("查台账"):
+            t = tickets.newest()
         if t is not None:
             room = f"，{t['room']}" if t["room"] else ""
             reply = (f"你的报修单 {t['id']}（{t['category']}{room}）现在是"
@@ -262,9 +273,10 @@ def handle_query(query):
     #    我们只负责"真建单"，最后把**真实工单号**补进回答 ✓
     repair_ticket = None
     if any(w in query for w in _REPAIR_WORDS):
-        repair_ticket = tickets.create(room=_guess_room(),
-                                       category=tickets.guess_category(query),
-                                       note=query)
+        with trace.timed("建单"):
+            repair_ticket = tickets.create(room=_guess_room(),
+                                           category=tickets.guess_category(query),
+                                           note=query)
         print(f"[工单] 新建 {repair_ticket['id']} 房间={repair_ticket['room'] or '未登记'} "
               f"类别={repair_ticket['category']}", flush=True)
 
@@ -272,18 +284,27 @@ def handle_query(query):
     if MUSIC_ENABLE:
         song, strict = music_request(query)
         if song is not None:
-            result = handle_music(song, query, strict)
+            with trace.timed("音乐"):
+                result = handle_music(song, query, strict)
             if result is not None:
-                return result            # None = 宽松匹配又搜不到，下面交给云端
+                # 音乐分支自己已经合成过音频 → 这里只补链路字段，**不重复 TTS** ✗
+                result["request_id"] = trace.rid()
+                result["timings"] = trace.timings()
+                trace.log("music", query=query, total=trace.total(),
+                          timings=trace.timings())
+                trace.summary("放歌")
+                return result
 
     # 5) 带着【已知信息 + 最近对话】去问大脑
     enriched = memory.build_query(query)
     if BRAIN == "local":
-        reply, action = local_reply(query)
+        with trace.timed("本地"):
+            reply, action = local_reply(query)
         source = "本地规则"
     else:
         try:
-            reply, action = ask_cloud(enriched)
+            with trace.timed("平台"):
+                reply, action = ask_cloud(enriched)
             source = "云端平台"
             # 平台要是答非所问/没下发动件动作，这里按用户原话补上
             reply, action, override = _action_guard(query, reply, action)
@@ -291,7 +312,8 @@ def handle_query(query):
                 source = override
         except Exception as e:
             print(f"[云端] 调用失败，回退本地规则: {type(e).__name__}: {e}", flush=True)
-            reply, action = local_reply(query)
+            with trace.timed("本地"):
+                reply, action = local_reply(query)
             source = "本地回退"
 
     # 6) 这一轮如果是报修，把**真实工单号**补进回答，并把动作钉成"受理"= 绿灯

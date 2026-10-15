@@ -4,6 +4,7 @@ import time
 
 import requests
 
+from . import trace
 from .config import BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY, TTS_ENGINE
 
 # 百度 access_token 缓存（有效期 30 天）—— 模块级可变状态，只在本模块内使用
@@ -102,13 +103,15 @@ def baidu_asr(wav_bytes):
     dev_pid: 1537=普通话(纯中文)  1536=普通话(带简单英文)  1737=英语
     """
     token = _get_baidu_token()  # 和 TTS 同一个 app 的 token
-    r = requests.post(
-        "https://vop.baidu.com/server_api",
-        params={"dev_pid": 1537, "cuid": "ESP32", "token": token},
-        headers={"Content-Type": "audio/wav; rate=16000"},
-        data=wav_bytes,
-        timeout=30,
-    )
+    # 链路追踪：把"识别"这一段单独计时（它是整条链路里最容易慢的一段 ✓）
+    with trace.timed("ASR"):
+        r = requests.post(
+            "https://vop.baidu.com/server_api",
+            params={"dev_pid": 1537, "cuid": "ESP32", "token": token},
+            headers={"Content-Type": "audio/wav; rate=16000"},
+            data=wav_bytes,
+            timeout=30,
+        )
     j = r.json()
     if j.get("err_no") != 0:
         # 常见: 3301 音质太差/没听清, 3302 鉴权失败, 3303 服务端问题, 3305 音频过长

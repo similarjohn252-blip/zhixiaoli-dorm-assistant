@@ -99,6 +99,11 @@ def start_server():
         "ZHIXIAOLI_MEMORY_FILE": os.path.join(AUDIO, "记忆.json"),
         # 工单台账也必须隔离 ✗ —— 否则测试会往**真实台账**里塞垃圾工单
         "ZHIXIAOLI_TICKETS_DB": os.path.join(AUDIO, "工单.db"),
+        # ① 音频 URL 必须指回本机 ✗：.env 里 PUBLIC_HOST 现在是校园网地址，
+        #    测试从那个地址下载音频会超时（实测踩到 ✓）
+        "ZHIXIAOLI_PUBLIC_HOST": "127.0.0.1",
+        # ② 测试不测鉴权：清空 token，否则 memory/device 接口全是 401（实测踩到 ✓）
+        "ZHIXIAOLI_API_TOKEN": "",
         # 子进程 stdout 强制 UTF-8，否则 server.log 会写成乱码，排障时读不了
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
@@ -243,6 +248,10 @@ if start_server():
             rec(f"chat · {tag} 字段齐全",
                 all(k in j for k in ("voice_text", "device_action", "source")),
                 f"source={j.get('source')} 动作={j.get('device_action')}")
+            # 链路追踪（工程债 B4）：响应里必须带 request_id 与各段耗时 ✓
+            rec(f"chat · {tag} 链路 id 与耗时",
+                bool(j.get("request_id")) and isinstance(j.get("timings"), dict),
+                f"rid={j.get('request_id')} timings={j.get('timings')}")
             au = j.get("audio_url") or ""
             rec(f"chat · {tag} 播报是 WAV", bool(au) and check_wav(download(au)),
                 au[-22:] if au else "无音频")
