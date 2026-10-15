@@ -1,0 +1,9 @@
+# 开发依赖（**不是**运行依赖 ✗）—— 工程债 B3
+#
+# 安装：E:\Python\python.exe -m pip install -r requirements-dev.txt
+# 跑：  E:\Python\python.exe -m pytest tests -q
+#
+# 定位：`requirements.txt` 是**运行**要的（服务端跑起来必须有 ✓）；
+#       本文件是**开发/测试**要的（少了它服务端照样能跑 ✓）。
+# 这一层是"快测试"：纯逻辑、不联网、不启服务，秒级返回 ✓
+pytest==9.1.1

@@ -30,3 +30,5 @@ _材料/
 *_已填*.md
 # runtime output dir (audio, logs) - never in git
 语音/
+# pytest 的临时工作目录（项目内，跑完自删 ✓）
+.pytest_tmp/

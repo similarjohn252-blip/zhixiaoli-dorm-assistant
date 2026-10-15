@@ -245,13 +245,16 @@ for q, want_action, want_word, forbid_chabudao in cases:
     ok, detail = case_platform(q, want_action, want_word, forbid_chabudao)
     if not ok:
         # 平台检索实测有约 13% 的随机失准（见 tools\测_知识库稳定性.py）：
-        # 失败先重试一次，但把"偶发"显式记下来 —— 既不掩盖，也不误判成必现故障。
-        time.sleep(1.0)
-        ok2, detail2 = case_platform(q, want_action, want_word, forbid_chabudao)
-        if ok2:
-            FLAKY.append(q)
-            ok, detail = True, detail2 + "（偶发：第 2 次才过）"
-        else:
+        # 失败就再试 ✓ —— 2026-10-15 实测遇到**连续两次都没命中**，
+        # 于是闸门红了一次 ✗（而那不是我们的代码问题 ✓），所以最多试 3 次；
+        # 但"偶发"必须**显式记下来** ✓：既不掩盖真实退化，也不把平台随机性误判成故障 ✓
+        for attempt in (2, 3):
+            time.sleep(1.0)
+            ok2, detail2 = case_platform(q, want_action, want_word, forbid_chabudao)
+            if ok2:
+                FLAKY.append(q)
+                ok, detail = True, detail2 + f"（偶发：第 {attempt} 次才过）"
+                break
             ok, detail = ok2, detail2
     rec(f"平台 · {q}", ok, detail)
 
@@ -393,8 +396,17 @@ print()
 print("=" * 70)
 print("C. 固件编译")
 print("=" * 70)
+# ⚠️ 必须给一个**独立的构建目录** ✗ —— 2026-10-15 实测踩到（而且是偶发 ✗）：
+#    arduino-cli 默认在 %LOCALAPPDATA%\arduino\sketches\<hash>\ 里编译，
+#    而 **Arduino IDE 用的是同一个缓存目录** ✗ → 两边一撞就是
+#    "open ...\build.options.json: Access is denied"（退出码 1）
+#    给它自己的目录后，IDE 在不在跑都不影响闸门 ✓
+FW_BUILD = os.path.join(os.environ.get("TEMP") or "/tmp", "zhixiaoli_fwbld")
+
+
 def _compile_once():
-    return subprocess.run([ARDUINO_CLI, "compile", "--fqbn", FQBN, "--no-color", SKETCH],
+    return subprocess.run([ARDUINO_CLI, "compile", "--fqbn", FQBN, "--no-color",
+                           "--build-path", FW_BUILD, SKETCH],
                           capture_output=True, text=True, timeout=600)
 
 

@@ -27,6 +27,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (键, 名称, 命令行, 超时秒, 是否慢项, 需要服务端)
 STEPS = [
+    # 快测试层放**第一步** ✓ —— 纯逻辑、不联网、0.6 秒就能给反馈 ✓
+    # （工程债 B3：它已经在第一次运行时就抓出过"事实提取返回重复"的真 bug ✓）
+    ("pytest", "快测试层（纯逻辑）", [PY, "-m", "pytest", "tests", "-q"], 180, False, False),
     ("ruff", "静态检查", [PY, "-m", "ruff", "check", "."], 180, False, False),
     ("依赖", "依赖版本 12 项", [PY, os.path.join(ROOT, "tools", "检查依赖.py")], 240, False, False),
     ("平台端", "平台端 9 项", [PY, os.path.join(ROOT, "平台端测试.py")], 420, False, False),
@@ -84,6 +87,18 @@ def run_step(key, name, cmd, timeout, need_server):
             "fails": fails[:8]}
 
 
+def _has_pytest():
+    """本机装没装 pytest（开发依赖 ✓ 不是运行依赖 ✗）
+
+    没装就**跳过并说明** ✓ —— 而不是让闸门报一个"看不懂为什么失败"的红 ✗
+    """
+    try:
+        return subprocess.run([PY, "-m", "pytest", "--version"],
+                              capture_output=True, timeout=60).returncode == 0
+    except Exception:
+        return False
+
+
 def main():
     args = sys.argv[1:]
     fast = "--fast" in args
@@ -111,6 +126,10 @@ def main():
             continue
         if need_server and not deploy:
             print(f"\n⏭ 跳过 {name}（要加 --deploy，且服务端需在跑）")
+            continue
+        if key == "pytest" and not _has_pytest():
+            print(f"\n⏭ 跳过 {name}（本机没装 pytest → "
+                  f"E:\\Python\\python.exe -m pip install -r requirements-dev.txt ✓）")
             continue
         results.append(run_step(key, name, cmd, timeout, need_server))
 

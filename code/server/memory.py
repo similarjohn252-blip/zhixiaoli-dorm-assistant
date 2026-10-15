@@ -149,7 +149,13 @@ _NOT_A_FACT = ("什么", "哪个", "哪些", "哪", "谁", "吗", "呢", "怎么
 
 
 def extract_facts(text):
-    """从一句话里提取值得长期记住的信息。"""
+    """从一句话里提取值得长期记住的信息（**同一句命中多条规则时去重** ✓）。
+
+    ⚠️ 2026-10-15 由 pytest 快测试层抓到的真 bug ✗：
+       "记住我喜欢吃辣"会**同时命中** `我喜欢X` 与 `记住…` 两条规则 →
+       原来返回两条一模一样的 ✓。因为 `add_fact` 自己会去重，端到端测试一直没发现 ✗，
+       但 `extract_facts` 作为 API 不该吐重复 ✓
+    """
     out = []
     for pat, tpl in _FACT_RULES:
         m = re.search(pat, text or "")
@@ -161,7 +167,11 @@ def extract_facts(text):
         if tpl == "{}" and val.startswith("我"):
             val = "用户" + val[1:]               # "记住我喜欢X" → "用户喜欢X"，与其他规则合并去重
         out.append(tpl.format(val))
-    return out
+    uniq = []                                    # 保序去重 ✓
+    for x in out:
+        if x not in uniq:
+            uniq.append(x)
+    return uniq
 
 
 # ================= 记忆 2：短期记忆（最近几轮对话） =================

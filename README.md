@@ -110,6 +110,7 @@ code\
     app.py              Flask 路由（只做"接线" ✓）
   sketch_oct8a_copy_20261008145732\   固件（.ino + config.h 硬件调参 + secrets.h 网络密钥 + sketch.yaml）
 tools\                  自测 / 诊断 / 维护脚本（17 个，见下）
+tests\                  pytest 快测试层（纯逻辑 30 项 ✓ 0.7 秒 ✓ 不联网 ✓）
 _材料\                  赛题原始材料（PDF 提取文本、手册、选题方向）
 语音\                   运行时产物：播报音频、最近录音、放歌缓存、日志（已 gitignore ✓）
 ```
@@ -119,6 +120,7 @@ _材料\                  赛题原始材料（PDF 提取文本、手册、选�
 | 命令 | 查什么 |
 |---|---|
 | `E:\Python\python.exe tools\全量闸门.py` ⭐ | **一条命令跑完下面全部** ✓（`--fast` 跳过慢项、`--deploy` 加部署自检 ✓）；**一次报全、不早停** ✓ |
+| `E:\Python\python.exe -m pytest tests -q` | **快测试层**（纯逻辑 30 项 ✓ 0.7 秒 ✓ 不联网 ✓）—— 先装：`pip install -r requirements-dev.txt` ✓ |
 | `E:\Python\python.exe 全量测试.py` | **主门禁**：平台 A 组 + 本地服务端 B 组 + 固件编译（含"老接口字段未变"的兼容性护栏 ✓）|
 | `E:\Python\python.exe 平台端测试.py` | 只测平台 9 项（不启动服务、不写文件 ✓）|
 | `E:\Python\python.exe tools\检查依赖.py` | 依赖版本 12 项（Python + 固件库 + **内容指纹** + 核心 ✓）|
