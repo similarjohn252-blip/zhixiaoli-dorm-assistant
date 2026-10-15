@@ -69,6 +69,16 @@ TTS_SPD = int(os.environ.get("ZHIXIAOLI_TTS_SPD", "5"))   # 语速 0~15（默认
 TTS_PIT = int(os.environ.get("ZHIXIAOLI_TTS_PIT", "5"))   # 音调 0~15
 TTS_VOL = int(os.environ.get("ZHIXIAOLI_TTS_VOL", "5"))   # 音量 0~15（板子上另有一路硬件音量 ✓）
 
+# ---- edge-tts（微软神经语音）专用 ----
+# 可选音色（14 个中文，常用这几个 ✓）：zh-CN-XiaoxiaoNeural 晓晓(女) / zh-CN-XiaoyiNeural 晓伊(女) /
+#   zh-CN-YunxiNeural 云希(男) / zh-CN-YunyangNeural 云扬(男·新闻腔) / zh-CN-YunjianNeural 云健(男) /
+#   zh-CN-YunxiaNeural 云夏(童) / zh-CN-liaoning-XiaobeiNeural 晓北(东北话) / zh-HK-HiuMaanNeural 曉曼(粤语)
+#   全部候选见 tools\试听音色.py ✓
+TTS_EDGE_VOICE = os.environ.get("ZHIXIAOLI_TTS_EDGE_VOICE", "zh-CN-XiaoxiaoNeural")
+# ⚠️ 语速：edge 默认比百度【慢约 50%】✗（实测同一句 14.8s vs 9.7s）
+#    → 调快一点能明显缩短现场等待 ✓（+20% 是实测较自然的档位 ✓；范围 -50%~+100% ✓）
+TTS_EDGE_RATE = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_RATE", "20"))
+
 # 百度语音 Key（缺任一项都会在启动时 fail fast）
 BAIDU_API_KEY = require("BAIDU_API_KEY")
 BAIDU_SECRET_KEY = require("BAIDU_SECRET_KEY")

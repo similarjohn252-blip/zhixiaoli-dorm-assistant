@@ -1,12 +1,14 @@
 """语音出入口：百度 TTS / edge-tts 兜底 / 百度 ASR（三者共用一份 access_token 缓存）。"""
 import asyncio
+import os
 import time
 
 import requests
 
 from . import trace
 from .config import (BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY,
-                     TTS_ENGINE, TTS_PER, TTS_PIT, TTS_SPD, TTS_VOL)
+                     TTS_EDGE_RATE, TTS_EDGE_VOICE, TTS_ENGINE,
+                     TTS_PER, TTS_PIT, TTS_SPD, TTS_VOL)
 
 # 百度 access_token 缓存（有效期 30 天）—— 模块级可变状态，只在本模块内使用
 _baidu_token = {"value": None, "expire_at": 0.0}
@@ -72,12 +74,35 @@ def baidu_tts(text, out_path):
 
 # ================= TTS：edge-tts（兜底，当前会被微软 403） =================
 def edge_tts_generate(text, out_path):
+    """edge-tts（微软神经语音）→ **就地转成板子能播的 16k 单声道 WAV** ✓
+
+    ⚠️ 2026-10-15 实测的坑 ✗（换 edge 时"没有声音"就是这个）：
+       edge-tts 返回的是 **MPEG-2 / 24kHz** 的 mp3 ✗
+       而板子的音频库**解不了 MPEG-2** ✗ —— 表现是"有进度但不出声、总时长=0" ✓
+       （当年百度 16kHz MPEG2 就栽在这里 ✓ 见《接线与使用说明》第 435 行 ✓）
+       音频库认的是：**WAV** ✓ / m4a·AAC ✓ / MPEG-1 44.1kHz MP3 ✓
+
+    所以这里转码：mp3 → **16k / 单声道 / 16位 PCM WAV** ✓
+       —— 与百度 `aue=6` 的输出规格**完全一致** ✓（板上实测能播 ✓）
+    如果 soundfile 没装，导入会失败 → synthesize 会自动退回百度 ✓（退路仍在 ✓）
+    """
     import edge_tts  # 延迟导入，库有问题也不影响启动
 
+    tmp = out_path + ".mp3"
+    rate = f"{TTS_EDGE_RATE:+d}%"
+
     async def _run():
-        await edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural").save(out_path)
+        await edge_tts.Communicate(text, TTS_EDGE_VOICE, rate=rate).save(tmp)
 
     asyncio.run(_run())
+    try:
+        import soundfile as sf
+
+        data, _sr = sf.read(tmp)
+        sf.write(out_path, data, 16000, subtype="PCM_16")   # 直接重采样到 16k ✓
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     return out_path
 
 

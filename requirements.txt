@@ -12,3 +12,5 @@ requests==2.34.2
 urllib3==2.8.0
 python-dotenv==1.2.4
 edge-tts==7.2.8
+# edge-tts 的 mp3 是 MPEG-2/24kHz，板子解不了 ✗ → 用它转成 16k WAV ✓
+soundfile==0.14.0
