@@ -70,8 +70,10 @@ def run_step(key, name, cmd, timeout, need_server):
         out, rc = f"（起不来：{type(e).__name__}: {e}）", 125
     dur = time.time() - t0
 
-    # 打尾巴（够看结论就行，别刷屏 ✓）
-    tail = [ln for ln in out.strip().splitlines() if ln.strip()][-12:]
+    # 打尾巴；**失败时多打一些** ✗ ——
+    # 2026-10-15 实测：固件编译偶发失败，真正的报错在 [FAIL] 之后几行，
+    # 被 12 行尾巴截掉了，只留下"退出码 1"这种没用的信息 ✓
+    tail = [ln for ln in out.strip().splitlines() if ln.strip()][-(30 if rc != 0 else 12):]
     for ln in tail:
         print("   " + ln[:150])
 

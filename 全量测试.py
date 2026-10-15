@@ -391,14 +391,32 @@ print()
 print("=" * 70)
 print("C. 固件编译")
 print("=" * 70)
+def _compile_once():
+    return subprocess.run([ARDUINO_CLI, "compile", "--fqbn", FQBN, "--no-color", SKETCH],
+                          capture_output=True, text=True, timeout=600)
+
+
 try:
-    r = subprocess.run([ARDUINO_CLI, "compile", "--fqbn", FQBN, "--no-color", SKETCH],
-                       capture_output=True, text=True, timeout=600)
+    r = _compile_once()
+    # 2026-10-15 实测踩到 ✗：**同一句编译命令偶发退出 1**（手动立刻重跑又好 ✓）——
+    # 大概是校园网 / 库索引 / IDE 抢占之类的瞬时问题 ✓。
+    # 按本项目惯例：**重试一次，但把"偶发"显式记下来**（既不掩盖，也不误判成必现故障 ✓）
+    flaky_compile = False
+    if r.returncode != 0:
+        time.sleep(2)
+        r2 = _compile_once()
+        if r2.returncode == 0:
+            flaky_compile = True
+            r = r2
     line = [x for x in r.stdout.splitlines() if "Sketch uses" in x]
     rec("固件编译通过", r.returncode == 0,
-        line[0].strip() if line else f"退出码 {r.returncode}")
+        (line[0].strip() if line else f"退出码 {r.returncode}")
+        + ("（偶发：第 2 次才过 ✓）" if flaky_compile else ""))
     if r.returncode != 0:
-        print("     " + "\n     ".join(r.stdout.splitlines()[-8:]))
+        # 报错可能在 stdout 也可能在 stderr ✗ —— 两边都打，别再让人猜 ✓
+        for tag, s in (("stdout", r.stdout), ("stderr", r.stderr)):
+            if s and s.strip():
+                print(f"     [{tag}] " + "\n     ".join(s.strip().splitlines()[-10:]))
 except Exception as e:
     rec("固件编译", False, f"{type(e).__name__}: {str(e)[:80]}")
 
