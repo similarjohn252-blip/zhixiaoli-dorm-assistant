@@ -1,0 +1,14 @@
+# 智小理服务端 · Python 依赖（**精确锁定** —— 工程债 A3）
+#
+# 为什么要锁：不锁的话 pip 会装最新版，"在我机器上好的" ✗
+# 目的：换一台电脑按这份装，装出来的版本与演示机**一致** ✓
+#
+# 安装：E:\Python\python.exe -m pip install -r requirements.txt
+# 核查：E:\Python\python.exe E:\天翼\tools\检查依赖.py
+#       （它会同时核对 Python 依赖与固件库版本 ✓）
+Flask==3.1.3
+Werkzeug==3.1.9
+requests==2.34.2
+urllib3==2.8.0
+python-dotenv==1.2.4
+edge-tts==7.2.8

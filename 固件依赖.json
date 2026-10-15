@@ -1,0 +1,21 @@
+{
+  "_说明": "固件依赖的精确版本（工程债 A3）。tools/检查依赖.py 会拿它和本机实际装的对比 ✓",
+  "core": "esp32:esp32@3.3.10-cn",
+  "core_备注": "本项目在 3.3.10-cn 上编译通过（2261671 字节 / 71%）。换核心版本前，先跑一次 全量测试.py 里的固件编译 ✓",
+  "libs": {
+    "ESP32-audioI2S": "4.0.0",
+    "U8g2": "2.36.19",
+    "ArduinoJson": "7.4.3"
+  },
+  "fingerprints": {
+    "ESP32-audioI2S/src/Audio.cpp": "53835034DE8AA9B9",
+    "U8g2/src/U8g2lib.h": "A85F9F6B030C8919"
+  },
+  "fingerprints_说明": "版本号可能被作者忘记改 ✗；指纹（SHA256 前 16 位）能识别'版本号相同但内容不同' ✓ 对不上就先别烧录，问一下别人用的是哪一版 ✓",
+  "安装方式": [
+    "① ESP32 核心：在 Arduino IDE 的 开发板管理器 里装 esp32 by Espressif（选 3.3.10-cn 这一版 ✓）",
+    "② 三个库：IDE 的 库管理器 里搜名字装对应版本；或从 GitHub Release 下同版本的 zip → 项目 → 加载库 → 添加 .ZIP 库",
+    "③ 装完跑：E:\\Python\\python.exe E:\\天翼\\tools\\检查依赖.py（期望全 ✓）",
+    "④ 再跑：E:\\Python\\python.exe E:\\天翼\\全量测试.py（里面含固件编译，编译通过才算真的对 ✓）"
+  ]
+}
