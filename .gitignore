@@ -28,3 +28,5 @@ _材料/
 # filled-in forwarding docs (contain the real token)
 *_已填token*.md
 *_已填*.md
+# runtime output dir (audio, logs) - never in git
+语音/

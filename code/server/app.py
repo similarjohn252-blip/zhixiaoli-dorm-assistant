@@ -55,6 +55,24 @@ def _trace_header(resp):
     resp.headers["X-Request-Id"] = trace.rid()
     return resp
 
+
+# ================= 跨源 CORS（队友的网页在别的源上 ✓）=================
+# 实测：Flask 侧原来**完全没有** CORS 响应头 ✗ →
+#   队友的网页（例如 http://localhost:8000 或另一台机器）调 /v1/chat 会被浏览器**直接拦掉** ✗
+#   （板子的 WebServer 早就开好了 ✓ —— 这里是服务端那一半，之前漏了 ✓）
+# 用 `*` 而不是回显 Origin：我们不依赖 Cookie 凭据 ✓，`*` 最简单也够用 ✓
+# ⚠️ 代价：任何网站都能调这些接口（/v1/chat 会花平台与百度的额度）
+#    → 对外部署时用 token 保护敏感接口（/v1/device/*、/v1/memory* 已保护 ✓），
+#      并注意 D4 那条"部署公网前必须加鉴权"的硬约束 ✓
+@app.after_request
+def _cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, X-Request-Id")
+    resp.headers["Access-Control-Max-Age"] = "600"
+    return resp
+
 _BOOT_TS = time.time()          # 给 /v1/health 算运行时长
 
 # ================= 可选鉴权（部署到公网前必须开）=================

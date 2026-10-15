@@ -1,12 +1,14 @@
-"""提交前检查：别把 .env 里的真实密钥/真 token 提交进仓库。
+"""提交前检查：① .env 里的真实密钥 ② 运行时产物（录音/日志/数据库/备份）
 
-为什么需要（本会话真实踩到 3 次）：
-  1) .env.bak（含真实密钥）被提交；2) 文档里把真实密钥前缀当 grep 例子；
-  3) 转发文档被填上真 token 后又被提交。
-都是"人一时疏忽"型，所以按《工程债偿还指南》第 8 条：纪律靠机器，人只负责判断。
+为什么需要（本会话真实踩到 4 次 ✗）：
+  ① .env.bak 含真实密钥被提交；② 文档里把真实密钥前缀当 grep 例子；
+  ③ 转发文档被填上真 token 后又被提交；④ 语音\链路日志.jsonl（运行时日志）被提交。
+前三次是"密钥"，第四次是"运行时产物" —— 所以护栏要**两类都查** ✓
+按《工程债偿还指南》第 8 条：**纪律靠机器，人只负责判断** ✓
 
-本脚本故意不起子进程（subprocess 管道在受限环境会 EPERM，曾让护栏自己崩掉），
-暂存文件列表由 .githooks/pre-commit（sh）取好、当参数传进来。
+⚠️ 本脚本**故意不起子进程**（subprocess 管道在受限环境会 EPERM，
+   曾让护栏自己崩掉、提交被"误拦" ✓）；
+   暂存文件列表由 .githooks/pre-commit（sh）取好、当参数传进来 ✓
 
 用法：E:\\Python\\python.exe tools\\提交前检查.py 文件1 文件2 ...
 """
@@ -20,40 +22,64 @@ files = sys.argv[1:]
 if not files:
     print("[提交前检查] 没拿到暂存文件列表，跳过")
     sys.exit(0)
-if not os.path.exists(ENV):
-    sys.exit(0)
 
-secrets = []
-for line in open(ENV, encoding="utf-8"):
-    if line.lstrip().startswith("#") or "=" not in line:
-        continue
-    k, v = line.rstrip("\n").split("=", 1)
-    v = v.strip()
-    if len(v) >= 8 and re.search(r"KEY|SECRET|TOKEN|PASSWORD", k.upper()):
-        secrets.append((k.strip(), v))
-if not secrets:
-    sys.exit(0)
+# ---------- ① 运行时产物：这些东西每次运行都会变，且夹带真实数据 ✗ ----------
+RUNTIME = (
+    r"\.db$", r"\.db-wal$", r"\.db-shm$",     # SQLite 台账
+    r"\.jsonl$", r"\.log$",                   # 链路日志 / 访问日志
+    r"\.wav$", r"\.mp3$", r"\.m4a$",          # 录音与音频缓存
+    r"\.bak$",                                # 配置备份
+    r"^语音/",                                 # 整个音频目录都是运行时产物 ✓
+)
+ALLOW = (r"\.env\.example$",)                 # 唯一允许入库的 .env 变体 ✓
 
-bad = []
+rt_bad = []
 for f in files:
-    p = os.path.join(ROOT, f)
-    if not os.path.isfile(p):
+    p = f.replace("\\", "/")
+    if any(re.search(a, p) for a in ALLOW):
         continue
-    try:
-        txt = open(p, encoding="utf-8", errors="ignore").read()
-    except Exception:
-        continue
-    for k, v in secrets:
-        if v in txt:
-            bad.append((f, k))
+    if any(re.search(r, p) for r in RUNTIME):
+        rt_bad.append(f)
 
-if bad:
+# ---------- ② 真实密钥 ----------
+sec_bad = []
+if os.path.exists(ENV):
+    secrets = []
+    for line in open(ENV, encoding="utf-8"):
+        if line.lstrip().startswith("#") or "=" not in line:
+            continue
+        k, v = line.rstrip("\n").split("=", 1)
+        v = v.strip()
+        if len(v) >= 8 and re.search(r"KEY|SECRET|TOKEN|PASSWORD", k.upper()):
+            secrets.append((k.strip(), v))
+    for f in files:
+        p = os.path.join(ROOT, f)
+        if not os.path.isfile(p):
+            continue
+        try:
+            txt = open(p, encoding="utf-8", errors="ignore").read()
+        except Exception:
+            continue
+        for k, v in secrets:
+            if v in txt:
+                sec_bad.append((f, k))
+
+# ---------- 结论 ----------
+if rt_bad or sec_bad:
     print("")
-    print("[提交前检查] x 提交被拦下：暂存的文件里出现了 .env 的真实密钥")
-    for f, k in bad:
-        print("    " + f + "   <- 含 " + k + " 的值")
-    print("    处理：把真值换成占位符（密钥只进 .env）")
-    print("          确实要提交请用 --no-verify（不推荐）")
+    print("[提交前检查] x 提交被拦下")
+    if sec_bad:
+        print("  ① 暂存文件里出现了 .env 的真实密钥：")
+        for f, k in sec_bad:
+            print("      " + f + "   <- 含 " + k + " 的值")
+    if rt_bad:
+        print("  ② 暂存文件里出现了【运行时产物】（每次运行都会变、且夹带真实数据）：")
+        for f in rt_bad:
+            print("      " + f)
+        print("     处理：把它加进 .gitignore（已覆盖 *.db* / *.jsonl / *.log / *.wav / *.bak / 语音/ ✓）；")
+        print("           已经误加的：git rm --cached <文件>")
+    print("  确实要提交请用 --no-verify（不推荐）")
     print("")
     sys.exit(1)
-print("[提交前检查] ok 已检查 " + str(len(files)) + " 个暂存文件，没有 .env 的真实密钥")
+
+print("[提交前检查] ok 已检查 " + str(len(files)) + " 个暂存文件：无真实密钥、无运行时产物")
