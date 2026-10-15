@@ -101,6 +101,7 @@ E:\Python\python.exe tools\链路日志.py --slow     # 找最慢的
 | 14 | **前后端"只增不改"** | 网页和我们并行开发，改字段名会互相弄坏 ✗ | 全量测试里有"`/v1/chat` 字段未变"的护栏 ✓ |
 | 15 | **音频地址跟随请求的 Host** | 写死 `PUBLIC_HOST` ✗ → 校园网 IP 一变，板子拿到**死地址**、屏幕「播放失败」（2026-10-15 实测 ✓）| `trace.set_base()` + `music._base()`：实测两个不同 Host 返回两个不同地址 ✓（老代码两次都返回同一个配置值 ✗）|
 | 16 | **板子自己重连 Wi-Fi，且屏幕说实话** | 原代码掉网后**只打印不重连** ✗ → 永远回不来；且屏幕留着上一次的「上传失败」，把人误导 ✓（2026-10-15 演练实测 ✓）| 主循环每 8 秒 `WiFi.reconnect()` ＋ 屏幕显示「Wi-Fi 掉线，重连中」；修复后重做演练**一次通过** ✓ |
+| 17 | **记忆也落 SQLite**（原来只有台账是）| 裸 JSON 没有事务 ✗ —— 写到一半断电就是一个坏文件、整份记忆全丢 ✓ | 迁移实测：旧 104 条事件全部导入、旧文件保留、跨进程读得到、上限一致 ✓；对外仍是 _memory dict → 调用方零改动 ✓ |
 
 ---
 
@@ -133,7 +134,7 @@ E:\Python\python.exe tools\链路日志.py --slow     # 找最慢的
 
 | 文件 | 结构 | 内容 | 怎么清 |
 |---|---|---|---|
-| `code\记忆.json` | `{"facts": [...], "events": [...]}` | 长期已知信息（≤20 条）+ 历史事件（≤200 条）| `POST /v1/memory/clear` ✓ |
+| `code\记忆.db` | SQLite：`facts(id, ts, text UNIQUE)` / `events(id, ts, user, reply)` | 长期已知信息（≤20 条）+ 历史事件（≤200 条）| `POST /v1/memory/clear` ✓ |
 | `code\工单.db` | `tickets(id, ts, updated, room, category, status, note)` | 报修台账（SQLite + WAL ✓）| `POST /v1/tickets/clear` ✓ |
 | `语音\链路日志.jsonl` | 每行一个 JSON：`ts/rid/event/...` | 每次请求的链路与耗时（2MB×3 滚动 ✓）| 直接删 ✓ |
 | `语音\output.wav` | WAV | 最近一次播报 ✓ | 直接删 ✓ |

@@ -93,6 +93,16 @@ CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # → E:
 MEMORY_FILE = os.environ.get(
     "ZHIXIAOLI_MEMORY_FILE",
     os.path.join(CODE_DIR, "记忆.json"))
+# ---------------- 记忆库（工程债 B6：裸 JSON → SQLite）----------------
+# 为什么换：裸 JSON 没有事务 ✗ —— 写到一半断电就是一个坏文件，整份记忆全丢；
+#          也没有查询与并发保护 ✗（台账 工单.db 早就这么干了 ✓）
+# 兼容：对外仍是 memory._memory 那个 dict ✓（别的模块直接读它），
+#       SQLite 只做**落盘**那一层 → 调用方零改动 ✓
+# 旧路径推导：记忆.json → 记忆.db ✓（测试用环境变量隔离时也自动跟着走 ✓）
+# ⚠️ 必须用 `or` 而不是 get 的默认值 ✗ —— .env 里写了 `ZHIXIAOLI_MEMORY_DB=`（空串）
+#    时，os.environ.get 会老老实实返回空串 → sqlite3.connect("") 直接炸 ✓（差点埋雷 ✓）
+MEMORY_DB = os.environ.get("ZHIXIAOLI_MEMORY_DB") or (
+    os.path.splitext(MEMORY_FILE)[0] + ".db")
 MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
 HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
 

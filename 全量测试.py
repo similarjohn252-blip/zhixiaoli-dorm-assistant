@@ -97,6 +97,8 @@ def start_server():
         "ZHIXIAOLI_PUBLIC_PORT": "5010",
         "ZHIXIAOLI_AUDIO_DIR": AUDIO,
         "ZHIXIAOLI_MEMORY_FILE": os.path.join(AUDIO, "记忆.json"),
+        # 记忆库也必须显式隔离 ✓ —— 否则测试会连着开发机上那份真 记忆.db 跑 ✗
+        "ZHIXIAOLI_MEMORY_DB": os.path.join(AUDIO, "记忆.db"),
         # 工单台账也必须隔离 ✗ —— 否则测试会往**真实台账**里塞垃圾工单
         "ZHIXIAOLI_TICKETS_DB": os.path.join(AUDIO, "工单.db"),
         # ① 音频 URL 必须指回本机 ✗：.env 里 PUBLIC_HOST 现在是校园网地址，
