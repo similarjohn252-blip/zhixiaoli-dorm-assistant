@@ -177,11 +177,29 @@ print("=" * 70)
 print("0. 检查你正在运行的服务端（5000）是不是最新代码")
 print("=" * 70)
 try:
-    j = requests.get("http://127.0.0.1:5000/v1/memory", timeout=6).json()
+    # ⚠️ 坑（2026-10-15 实测踩到 ✗）：/v1/memory 自 2026-10-14 起**需要 token** ✗
+    #    不带 token 会拿到 401，而 401 的 JSON 里没有 facts → 这条检查会**永远**喊"是旧版" ✓
+    #    注意：测试自己的环境变量里把 token 清空了（那是给临时实例 5010 用的 ✗），
+    #    所以这里要**直接读项目根的 .env** 拿真实 token ✓
+    token = ""
+    try:
+        for _ln in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+                        encoding="utf-8"):
+            if _ln.startswith("ZHIXIAOLI_API_TOKEN="):
+                token = _ln.split("=", 1)[1].strip()
+                break
+    except Exception:
+        pass
+    _hdr = {"Authorization": f"Bearer {token}"} if token else {}
+    j = requests.get("http://127.0.0.1:5000/v1/memory", headers=_hdr, timeout=6).json()
     if "facts" in j:
-        rec("5000 上的服务端是新版", True, f"已知信息 {j.get('fact_count')} 条")
-    else:
+        rec("5000 上的服务端是新版", True,
+            f"已知信息 {j.get('fact_count')} 条" + ("（已带 token ✓）" if token else ""))
+    elif not token:
         rec("5000 上的服务端是新版", False, "是旧版，请 Ctrl+C 后重启 Flask")
+    else:
+        rec("5000 上的服务端是新版", False,
+            f"带 token 也没有 facts 字段：{str(j)[:80]}")
 except Exception as e:
     # 环境性提示：本脚本自己会起临时实例（5010），所以这里不算失败。
     # 关键是报出**真实原因**，而不是笼统地说"没在监听" ✗
