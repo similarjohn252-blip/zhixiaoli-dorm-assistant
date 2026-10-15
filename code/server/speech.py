@@ -7,7 +7,7 @@ import requests
 
 from . import trace
 from .config import (BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY,
-                     TTS_EDGE_RATE, TTS_EDGE_VOICE, TTS_ENGINE,
+                     TTS_EDGE_RATE, TTS_EDGE_SR, TTS_EDGE_VOICE, TTS_ENGINE,
                      TTS_PER, TTS_PIT, TTS_SPD, TTS_VOL)
 
 # 百度 access_token 缓存（有效期 30 天）—— 模块级可变状态，只在本模块内使用
@@ -98,8 +98,13 @@ def edge_tts_generate(text, out_path):
     try:
         import soundfile as sf
 
-        data, _sr = sf.read(tmp)
-        sf.write(out_path, data, 16000, subtype="PCM_16")   # 直接重采样到 16k ✓
+        data, sr = sf.read(tmp)
+        # ⚠️ 2026-10-15 修正 ✗：原来硬转 16kHz（照百度 aue=6 抄的 ✓）
+        #    但 16kHz 把 8kHz 以上频率**全砍掉** → 晓晓听起来就不像晓晓了 ✗
+        #    （实测判别：时长比例 0.306 秒/字 ≈ edge 的 0.310 ✓ 证明确实是 edge 在说 ✓）
+        #    现在默认 **保持 edge 原生 24kHz** ✓ 完全不重采样 → 音色与试听样音一致 ✓
+        #    万一 24k 播不了：把 ZHIXIAOLI_TTS_EDGE_SR 设成 16000 退回 ✓
+        sf.write(out_path, data, (TTS_EDGE_SR or sr), subtype="PCM_16")
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)

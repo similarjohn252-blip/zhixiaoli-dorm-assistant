@@ -181,6 +181,15 @@ def make_tts(text):
     path = os.path.join(AUDIO_DIR, AUDIO_FILENAME)
     try:
         engine = synthesize(text, path)
+        # ⚠️ 2026-10-15 加：把【这次是谁在说话】记进链路日志 ✓
+        #    起因：首选引擎换成 edge 后，用户说"不是晓晓的声音" ✗ ——
+        #    而日志里**没有任何引擎信息** ✓，只能靠"时长比例"倒推
+        #    （板子那份 0.306 秒/字 vs edge 0.310 / 百度 0.252 ✓ 才断定是 edge ✓）
+        #    —— 这种事不该靠推理 ✓，一句话记下来就够了 ✓
+        try:
+            trace.log("tts", engine=engine, bytes=os.path.getsize(path))
+        except Exception:          # 记日志绝不能影响播报 ✓
+            pass
         if os.path.getsize(path) > 0:
             print(f"[TTS] {engine} 合成成功: {path}", flush=True)
             return f"{_base()}/audio/{AUDIO_FILENAME}"

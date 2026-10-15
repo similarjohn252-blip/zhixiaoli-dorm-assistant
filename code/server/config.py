@@ -78,6 +78,11 @@ TTS_EDGE_VOICE = os.environ.get("ZHIXIAOLI_TTS_EDGE_VOICE", "zh-CN-XiaoxiaoNeura
 # ⚠️ 语速：edge 默认比百度【慢约 50%】✗（实测同一句 14.8s vs 9.7s）
 #    → 调快一点能明显缩短现场等待 ✓（+20% 是实测较自然的档位 ✓；范围 -50%~+100% ✓）
 TTS_EDGE_RATE = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_RATE", "20"))
+# ⚠️ 转码目标采样率：**0 = 保持 edge 原生（24kHz）✓ 推荐**
+#    2026-10-15 实测教训 ✗：一开始硬转 16kHz（照百度 aue=6 抄的 ✓）→
+#    16kHz 把 8kHz 以上频率全砍掉 → 晓晓听起来【不像晓晓】了 ✓（用户原话 ✗）
+#    若哪天发现 24kHz 在板子上播不了，把它设成 16000 即可退回 ✓
+TTS_EDGE_SR = int(os.environ.get("ZHIXIAOLI_TTS_EDGE_SR", "0"))
 
 # 百度语音 Key（缺任一项都会在启动时 fail fast）
 BAIDU_API_KEY = require("BAIDU_API_KEY")
