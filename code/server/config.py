@@ -58,6 +58,17 @@ PORT = int(os.environ.get("ZHIXIAOLI_PORT", "5000"))
 # TTS 后端：baidu（默认，实测可用）/ edge / 其他值=先百度失败再 edge
 TTS_ENGINE = os.environ.get("ZHIXIAOLI_TTS_ENGINE", "baidu").lower()
 
+# ================= TTS 音色（2026-10-15 加：想换音色只改这里 ✓）=================
+# 百度发音人 per（基础音库 = 免费 ✓）：
+#   0 度小美(女) ✓   1 度小宇(男) ✓   3 度逍遥(男·情感) ✓   4 度丫丫(童声) ✓
+# 精品音库（**要另行购买** ✗，没买会报错）：
+#   5003 度逍遥 ✗  5118 度小鹿 ✗  106 度博文 ✗  110 度小童 ✗  103 度米朵 ✗  5 度小娇 ✗
+# 想听哪个能用：E:\Python\python.exe tools\试听音色.py ✓（它会一次试完并告诉你结果 ✓）
+TTS_PER = int(os.environ.get("ZHIXIAOLI_TTS_PER", "0"))
+TTS_SPD = int(os.environ.get("ZHIXIAOLI_TTS_SPD", "5"))   # 语速 0~15（默认 5；念长句可试 4 ✓）
+TTS_PIT = int(os.environ.get("ZHIXIAOLI_TTS_PIT", "5"))   # 音调 0~15
+TTS_VOL = int(os.environ.get("ZHIXIAOLI_TTS_VOL", "5"))   # 音量 0~15（板子上另有一路硬件音量 ✓）
+
 # 百度语音 Key（缺任一项都会在启动时 fail fast）
 BAIDU_API_KEY = require("BAIDU_API_KEY")
 BAIDU_SECRET_KEY = require("BAIDU_SECRET_KEY")

@@ -5,7 +5,8 @@ import time
 import requests
 
 from . import trace
-from .config import BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY, TTS_ENGINE
+from .config import (BAIDU_API_KEY, BAIDU_AUE, BAIDU_CHUNK, BAIDU_SECRET_KEY,
+                     TTS_ENGINE, TTS_PER, TTS_PIT, TTS_SPD, TTS_VOL)
 
 # 百度 access_token 缓存（有效期 30 天）—— 模块级可变状态，只在本模块内使用
 _baidu_token = {"value": None, "expire_at": 0.0}
@@ -49,10 +50,12 @@ def baidu_tts(text, out_path):
                 "cuid": "ESP32",
                 "ctp": 1,
                 "lan": "zh",
-                "spd": 5,
-                "pit": 5,
-                "vol": 5,
-                "per": 0,  # 0 女声 / 1 男声 / 3 情感男声 / 4 情感女声
+                # ⚠️ 2026-10-15：这四个原来写死在代码里 ✗ → 改成 config 里的旋钮 ✓
+                #    想换音色只改 .env（或 config.py 的默认值）✓ 见 tools\试听音色.py ✓
+                "spd": TTS_SPD,   # 语速
+                "pit": TTS_PIT,   # 音调
+                "vol": TTS_VOL,   # 音量
+                "per": TTS_PER,   # 0 度小美 / 1 度小宇 / 3 度逍遥 / 4 度丫丫（精品音库需购买 ✗）
                 "aue": BAIDU_AUE,  # 3 = mp3, 6 = wav(16k/单声道/16位 PCM)
             },
             timeout=20,
