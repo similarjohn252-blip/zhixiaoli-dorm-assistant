@@ -169,7 +169,9 @@ def memory_api():
         return jsonify({"ok": True, "added": added,
                         "facts": memory._memory["facts"]}), 200
     return jsonify({
-        "file": MEMORY_FILE,
+        # ⚠️ 与 /v1/health 一样曾报旧文件名 ✗ —— 统一报 SQLite 那个 ✓
+        "file": MEMORY_DB,
+        "legacy_json": MEMORY_FILE,
         "facts": memory._memory["facts"],
         "fact_count": len(memory._memory["facts"]),
         "events": memory._memory["events"][-10:],
