@@ -136,3 +136,8 @@ print(f"平台端汇总：通过 {passed} 项，失败 {failed} 项，其中偶�
 if flaky:
     print("提示：偶发＝平台侧检索/模型有随机性。同一句反复偶发，就该加固知识库（补文件 / 调 TopK）")
 print("=" * 96)
+
+# 退出码必须反映成败 ✗ —— 原来恒为 0，靠 $LASTEXITCODE 判断的人/CI 会被误导
+# （全量闸门实测踩到：脚本打印"失败 N 项"却退出 0 ✓）
+# 用 SystemExit 以免再引入一次 import ✓
+raise SystemExit(0 if failed == 0 else 2)
