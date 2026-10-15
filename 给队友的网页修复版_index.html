@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>智小理 · 宿舍事务助手</title>
+<style>
+:root{
+  --bg:#f4f6fb;
+  --card:#ffffff;
+  --line:#e4e9f2;
+  --text:#1f2937;
+  --muted:#6b7280;
+  --brand:#2563eb;
+  --brand-soft:#eef4ff;
+  --ok:#0a7d32;
+  --ok-bg:#e8f6ed;
+  --bad:#c0392b;
+  --bad-bg:#fdecea;
+  --warn:#8a5a00;
+  --warn-bg:#fff5e0;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  line-height:1.65;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:760px;margin:0 auto;padding:22px 14px 56px;}
+
+.site{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:18px 18px 16px;margin-bottom:16px;
+}
+.site h1{margin:0 0 4px;font-size:22px;letter-spacing:.5px;}
+.site .sub{margin:0 0 12px;color:var(--muted);font-size:14px;}
+.pills{display:flex;flex-wrap:wrap;gap:8px;}
+.pill{
+  display:inline-block;padding:5px 12px;border-radius:999px;
+  font-size:13px;font-weight:600;border:1px solid transparent;
+}
+.pill.muted{background:#f1f3f7;color:var(--muted);}
+.pill.ok{background:var(--ok-bg);color:var(--ok);}
+.pill.bad{background:var(--bad-bg);color:var(--bad);}
+
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;margin-bottom:14px;
+}
+.card h2{margin:0 0 12px;font-size:16px;display:flex;align-items:center;gap:8px;}
+.card h2 .idx{
+  width:22px;height:22px;border-radius:7px;background:var(--brand-soft);color:var(--brand);
+  font-size:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;
+}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+.addr{color:var(--muted);font-size:12px;margin-top:10px;word-break:break-all;}
+
+button{
+  font-size:15px;font-family:inherit;color:#fff;background:var(--brand);
+  border:0;border-radius:10px;padding:10px 18px;min-height:44px;cursor:pointer;
+}
+button:hover{filter:brightness(1.07);}
+button:disabled{background:#a9b6cc;cursor:not-allowed;}
+button.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand);}
+button.danger{background:#fff;color:var(--bad);border:1px solid var(--bad);}
+input[type=text]{
+  font-size:16px;font-family:inherit;padding:10px 12px;min-height:44px;
+  border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text);
+  flex:1 1 160px;min-width:0;
+}
+input[type=range]{width:100%;max-width:420px;accent-color:var(--brand);height:32px;}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.chip{
+  font-size:13px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);
+  background:#fbfcfe;color:#374151;cursor:pointer;
+}
+.chip:hover{border-color:var(--brand);color:var(--brand);}
+
+.reply{
+  white-space:pre-wrap;background:#f8fafc;border:1px solid var(--line);
+  border-radius:10px;padding:12px 14px;margin-top:12px;min-height:52px;font-size:15px;
+}
+.reply.warn{background:var(--warn-bg);border-color:#f0dca8;color:var(--warn);}
+.reply.bad{background:var(--bad-bg);border-color:#f5c6c0;color:var(--bad);}
+.meta{color:var(--muted);font-size:12px;margin-top:8px;}
+.msg{font-size:13px;margin-top:10px;}
+.msg.ok{color:var(--ok);}
+.msg.bad{color:var(--bad);}
+.hint{color:var(--muted);font-size:12px;margin-top:6px;}
+audio{width:100%;margin-top:12px;}
+pre.mem{
+  white-space:pre-wrap;word-break:break-all;background:#f8fafc;border:1px solid var(--line);
+  border-radius:10px;padding:12px;font-size:12.5px;max-height:220px;overflow:auto;margin:10px 0 0;
+}
+footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-height:1.8;}
+@media (max-width:600px){
+  .site h1{font-size:19px;}
+  .card{padding:14px;}
+  .row{gap:8px;}
+  input[type=text]{flex:1 1 100%;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="site">
+    <h1>智小理 · 宿舍事务助手</h1>
+    <p class="sub">宿舍语音助手 · 体验入口（板子状态 / 音量 / 个人信息 / 语音问答）</p>
+    <div class="pills">
+      <span class="pill muted" id="board">板子：检查中…</span>
+      <span class="pill muted" id="server">服务端：检查中…</span>
+      <span class="pill muted" id="version"></span>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2><span class="idx">1</span>连接状态</h2>
+    <div class="row">
+      <button onclick="refreshAll()">刷新状态</button>
+      <button class="ghost" onclick="reconnect()">重连云端</button>
+    </div>
+    <div class="addr" id="addr"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="idx">2</span>音量（0 ~ 21）</h2>
+    <input type="range" id="vol" min="0" max="21" value="15">
+    <div><span id="volText">-</span></div>
+    <div class="hint">拖动后松手即生效，音量存在板子闪存里，断电重启也不丢。</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="idx">3</span>板子状态</h2>
+    <div class="row">
+      <button onclick="checkBoard()">查看板子在线与音量</button>
+    </div>
+    <div class="msg" id="boardMsg"></div>
+    <div class="hint">免 token 只读接口 ✓（2026-10-15 改：原来这里是"提交个人信息"，
+      它需要 token ✗ —— 而网页不该持有 token ✓）</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="idx">4</span>问一句</h2>
+    <div class="chips">
+      <span class="chip" onclick="ask('我们宿舍的灯坏了，要报修')">我们宿舍的灯坏了，要报修</span>
+      <span class="chip" onclick="ask('宿舍晚上几点关门？')">宿舍晚上几点关门？</span>
+      <span class="chip" onclick="ask('我要晚归怎么报备？')">我要晚归怎么报备？</span>
+      <span class="chip" onclick="ask('在宿舍用大功率电器会怎么样？')">用大功率电器会怎么样？</span>
+    </div>
+    <div class="row">
+      <input type="text" id="q" placeholder="例如：我们宿舍的灯坏了，要报修">
+      <button id="askBtn" onclick="ask()">发送</button>
+    </div>
+    <div class="reply" id="reply">在这里显示回答。</div>
+    <div class="meta" id="meta"></div>
+    <audio id="player" controls></audio>
+    <div class="hint" id="audioHint"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="retry" style="display:none" onclick="ask(lastQuery)">再问一次</button>
+    </div>
+  </section>
+
+
+  <footer>
+    本页面只调用对接文档中列出的接口，不显示尚未实现的功能（如报修工单号、LED 实际点亮状态）。<br>
+    音频由点击触发播放；若页面与接口协议不一致（https 页面调 http 接口）会被浏览器拦截，演示期请统一使用 http。
+  </footer>
+
+</div>
+
+<script>
+// ============ 只在这里改地址（不要在别处硬编码 IP）============
+const CONFIG = {
+  // ⚠️ 2026-10-15 更新：校园网 IP 变了（10.103.7.74 → 10.203.24.251）✓
+  //    它【还会变】✓ → 拿到新地址只改这一处 ✓（用 SERVER + "/v1/health" 自测是否有效 ✓）
+  SERVER: "http://10.203.24.251:5000",
+  // 看板子状态：走服务端的【免 token 只读】接口 ✓（不要直连板子的 192.168.137.x ✗
+  //   那是内网地址，跨网络必然打不通 ✓ 而且会暴露内网结构 ✓）
+  BOARD:  "http://10.203.24.251:5000/v1/board",
+};
+
+// ⚠️ 2026-10-15 更正 ✗：这一页【不需要任何 token】—— 原来那版把真 token 写在这里 ✓
+//    那是错的 ✗：浏览器里存不住秘密（F12 → Network/源码 一看就有 ✓），
+//    等于把管理接口（改音量、读写记忆、写个人信息）公开给所有人 ✗。
+//    现在：本页只用【免 token】接口 ✓；管理类接口不属于网页的职责 ✗
+//    → 若有人让你"把 token 填进前端"，请拒绝 ✗ 并找项目负责同学 ✓
+const HEADERS = {};
+
+// 所有"设备类"调用都走它：部署后切代理、演示期直连板子，只改上面 CONFIG 一处
+
+// 动作值不写死枚举：认识的翻译成中文，不认识的原样显示（后端以后加新取值也不会崩）
+const ACTION_TEXT = {
+  NONE: "无",
+  LED_GREEN_ON: "受理（绿）",
+  LED_BLUE_ON: "处理中（蓝）",
+  LED_RED_ON: "警示（红）",
+  PLAY_MUSIC: "播放音乐",
+};
+
+function el(id){ return document.getElementById(id); }
+
+// 统一的 fetch 封装：把「网络不通 / 跨域被拦 / 后端报错 / 未授权」都变成人能看懂的提示
+async function call(url, opts = {}) {
+  let res;
+  try {
+    res = await fetch(url, { ...opts, headers: { ...HEADERS, ...(opts.headers || {}) } });
+  } catch (e) {
+    throw new Error("连不上 " + url + "（检查：是否连着校园网 / 与设备在同一热点？地址对不对？）");
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) throw new Error("未授权：token 缺失或不正确（HTTP 401）");
+    throw new Error("后端返回 " + res.status + "：" + text.slice(0, 120));
+  }
+  try { return JSON.parse(text); } catch (e) { return { raw: text }; }
+}
+
+function setPill(node, text, kind){
+  node.textContent = text;
+  node.className = "pill " + kind;
+}
+
+// ---------- 1. 状态 ----------
+async function checkBoard(){
+  const n = el("board");
+  setPill(n, "板子：检查中…", "muted");
+  try {
+    const j = await call(CONFIG.BOARD);   // 免 token 只读 ✓（原来直连板子 /status ✗）
+    // 兼容两种返回：代理 {online:true/false,...} 与板子直连 {status:"online"}
+    const online = (typeof j.online === "boolean") ? j.online : (j.status === "online");
+    const detail = (j.detail && j.detail.status) ? j.detail.status : (j.error || j.status || "");
+    if (online) {
+      setPill(n, "板子在线 ✓", "ok");
+    } else {
+      setPill(n, "板子离线 ✗" + (detail ? "（" + detail + "）" : ""), "bad");
+    }
+  } catch (e) {
+    setPill(n, "板子状态获取失败：" + e.message, "bad");
+  }
+}
+
+async function checkHealth(){
+  const n = el("server");
+  setPill(n, "服务端：检查中…", "muted");
+  try {
+    const j = await call(CONFIG.SERVER + "/v1/health");
+    const ok = j.ok !== false;
+    setPill(n, ok ? "服务端正常 ✓" : "服务端自检有问题 ✗", ok ? "ok" : "bad");
+    el("version").textContent = j.version ? ("版本 " + j.version) : "";
+  } catch (e) {
+    setPill(n, "服务端连不上：" + e.message, "bad");
+    el("version").textContent = "";
+  }
+}
+
+// 一处失败不拖垮另一处
+async function refreshAll(){
+  await Promise.allSettled([checkBoard(), checkHealth()]);
+}
+
+async function reconnect(){
+  const n = el("server");
+  setPill(n, "重连中…", "muted");
+  try {
+    await call(CONFIG.SERVER + "/v1/reset", { method: "POST" });
+    await refreshAll();
+  } catch (e) {
+    setPill(n, "重连失败：" + e.message, "bad");
+  }
+}
+
+// ---------- 2. 音量 ----------
+async function loadVolume(){
+  try {
+    const j = await call(CONFIG.BOARD);   // /v1/board 已返回 volume ✓ 免 token ✓
+    const v = j.volume ?? 15;
+    const s = j.steps ?? 21;
+    el("vol").max = s;
+    el("vol").value = v;
+    el("volText").textContent = v + " / " + s;
+  } catch (e) {
+    el("volText").textContent = "读取失败：" + e.message;
+  }
+}
+
+async function setVolume(v){
+  try {
+    await call(CONFIG.SERVER + "/__removed_write_volume__", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ volume: Number(v) }),
+    });
+    el("volText").textContent = v + " / " + (el("vol").max || 21) + " ✓";
+  } catch (e) {
+    el("volText").textContent = "设置失败：" + e.message;
+  }
+}
+
+// ---------- 3. 个人信息 ----------
+async function sendProfile(){
+  const name = el("name").value.trim() || "未填写";
+  const room = el("room").value.trim() || "未填写";
+  const btn = el("profileBtn");
+  const msg = el("profileMsg");
+  btn.disabled = true; btn.textContent = "发送中…";
+  msg.textContent = ""; msg.className = "msg";
+  try {
+    await call(CONFIG.SERVER + "/__removed_write_profile__", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, room: room }),
+    });
+    msg.textContent = "已发送给板子（板子串口会打印出来）✓";
+    msg.className = "msg ok";
+  } catch (e) {
+    msg.textContent = "发送失败：" + e.message;
+    msg.className = "msg bad";
+  } finally {
+    btn.disabled = false; btn.textContent = "发送给板子";
+  }
+}
+
+// ---------- 4. 问答 ----------
+let lastQuery = "";
+
+async function ask(q){
+  const value = (typeof q === "string" && q.trim()) ? q.trim() : el("q").value.trim();
+  if (!value) { el("reply").textContent = "请先输入要说的话。"; return; }
+
+  lastQuery = value;
+  el("q").value = value;
+
+  const reply = el("reply");
+  const meta = el("meta");
+  const btn = el("askBtn");
+  reply.className = "reply";
+  reply.textContent = "思考中…";
+  meta.textContent = "";
+  el("audioHint").textContent = "";
+  el("retry").style.display = "none";
+  btn.disabled = true; btn.textContent = "发送中…";
+
+  try {
+    const j = await call(CONFIG.SERVER + "/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: value }),
+    });
+
+    // 字段永远带默认值：不出现 undefined
+    const text = j.voice_text ?? "";
+    if (text.trim()) {
+      reply.textContent = text;
+    } else {
+      // 已知情况：云端知识库约 13% 概率"这次没查到"，重试一次通常就好
+      reply.textContent = "这次没有查到答案（云端知识库偶发失配）。再问一次通常就好。";
+      reply.className = "reply warn";
+      el("retry").style.display = "inline-block";
+    }
+
+    const actionText = ACTION_TEXT[j.device_action] ?? (j.device_action || "未知");
+    meta.textContent = "来源：" + (j.source || "-") +
+                       " ｜ 设备动作：" + actionText +
+                       " ｜ 已记住 " + (j.memory ?? 0) + " 条";
+    if (j.version) meta.textContent += " ｜ 服务端 " + j.version;
+
+    const player = el("player");
+    if (j.audio_url) {
+      player.src = j.audio_url;
+      player.play().catch(function(){
+        el("audioHint").textContent = "浏览器阻止了自动播放，请点播放器上的播放键 ▶";
+      });
+    } else {
+      player.removeAttribute("src");
+    }
+  } catch (e) {
+    reply.textContent = "出错了：" + e.message;
+    reply.className = "reply bad";
+  } finally {
+    btn.disabled = false; btn.textContent = "发送";
+  }
+}
+
+// ---------- 5. 记忆（⚠️ 2026-10-15：这一整块已从界面上移除 ✗）----------
+// 原因：/v1/memory* 需要 token ✗，而网页**不该持有 token** ✓
+// 若将来真要在页面上展示记忆：应由服务端另开一个【只读、脱敏】接口 ✓
+// 并且要考虑隐私 ✗（记忆里有房号/偏好，不该给任何访客看 ✓）
+async function loadMemory(){
+  const box = el("memoryBox");
+  box.textContent = "读取中…";
+  try {
+    const j = await call(CONFIG.SERVER + "/v1/memory");
+    box.textContent = JSON.stringify(j, null, 2);
+  } catch (e) {
+    box.textContent = "读取失败：" + e.message;
+  }
+}
+
+async function clearMemory(){
+  const box = el("memoryBox");
+  if (!confirm("确定清空已记住的个人信息吗？（历史事件会保留）")) return;
+  box.textContent = "清空中…";
+  try {
+    await call(CONFIG.SERVER + "/v1/memory/clear", { method: "POST" });
+    box.textContent = "已清空 ✓";
+    await loadMemory();
+  } catch (e) {
+    box.textContent = "清空失败：" + e.message;
+  }
+}
+
+// ---------- 初始化 ----------
+el("vol").addEventListener("input", function(ev){
+  el("volText").textContent = ev.target.value + " / " + (el("vol").max || 21);
+});
+el("vol").addEventListener("change", function(ev){ setVolume(ev.target.value); });
+el("q").addEventListener("keydown", function(ev){ if (ev.key === "Enter") ask(); });
+
+el("addr").textContent = "服务端：" + CONFIG.SERVER + "　｜　板子状态：" + CONFIG.BOARD + "（免 token 只读 ✓）";
+
+refreshAll();
+loadVolume();
+</script>
+</body>
+</html>
