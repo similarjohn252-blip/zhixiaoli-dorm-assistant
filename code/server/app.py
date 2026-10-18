@@ -96,6 +96,31 @@ def _check_token():
         return jsonify({"ok": False, "error": "未授权：token 缺失或不正确"}), 401
     return None
 
+# ================= 把网页本身送出去（2026-10-18 新增 ✓）=================
+# 为什么加 ✗：原来要另开 `python -m http.server 8000` 送网页 ✓ →
+#   ① 手机要访问【两个端口】(8000 拿页面 + 5000 调接口) ✗ 防火墙要开两条 ✗
+#   ② 不同源 → 又多一层 CORS 依赖 ✗
+#   → 现在由服务端在【5000 一个端口】上把网页送出去 ✓✓
+#   页面里的 CONFIG 用 `location.origin` ✓ → 服务端地址变了它自动跟着变 ✓✓
+# 安全性 ✓：这个页面本来就是【对外公开】的 ✓ 且不含任何密钥 ✓（已用提交护栏验证过 ✓）
+_WEB_PAGE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "给队友", "给队友的网页修复版_index.html")
+
+
+@app.route("/", methods=["GET"])
+def web_index():
+    """送网页首页 ✓ —— 手机/评委打开 http://<服务端地址>:5000/ 就能直接用 ✓"""
+    if not os.path.exists(_WEB_PAGE):
+        return jsonify({
+            "ok": False,
+            "error": "网页文件不在（给队友/给队友的网页修复版_index.html）",
+            "hint": "API 照常可用：/v1/health  /v1/chat  /v1/board",
+        }), 404
+    from flask import send_file
+    return send_file(_WEB_PAGE)
+
+
 # ================= 路由 =================
 @app.route("/v1/chat", methods=["POST"])
 def chat():
