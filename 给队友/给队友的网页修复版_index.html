@@ -177,7 +177,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
 <script>
 // ============ 只在这里改地址（不要在别处硬编码 IP）============
 const CONFIG = {
-  // ⚠️ 2026-10-15 更新：校园网 IP 变了（10.103.51.219 → 10.103.51.219）✓
+  // ⭐ 2026-10-18 起：本页不再写死任何地址 ✓ 用 location.origin 同源访问 ✓
+  //    （校园网 IP 三天变了三次 ✗ 写死一次失效一次；现在 IP 怎么变都不用改本页 ✓）
   //    它【还会变】✓ → 拿到新地址只改这一处 ✓（用 SERVER + "/v1/health" 自测是否有效 ✓）
   SERVER: location.origin,
   // 看板子状态：走服务端的【免 token 只读】接口 ✓（不要直连板子的 192.168.137.x ✗
