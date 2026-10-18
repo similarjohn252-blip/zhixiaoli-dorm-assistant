@@ -49,11 +49,12 @@ def preview() -> int:
         return 0
     try:
         c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=3)
-        # ⚠️ 列名必须按真实表来 ✓ —— 我第一版猜了个 created_at ✗ 表里叫 created ✓
-        #    （教训：*别猜列名，先 PRAGMA table_info* ✓ 今天又栽了一次 ✗）
+        # ⚠️ 列名必须按真实表来 ✓ —— 我前两版分别猜了 created_at ✗ 和 created ✗，
+        #    真实列是：id / ts / updated / room / category / status / note ✓
+        #    教训：*别猜列名，先 PRAGMA table_info 并且不要用尾巴看输出* ✓（我今天两个错一起犯了 ✗）
         rows = c.execute(
             "SELECT id, COALESCE(room,''), COALESCE(category,''), COALESCE(status,''), "
-            "COALESCE(created,'') FROM tickets ORDER BY rowid DESC").fetchall()
+            "COALESCE(ts,'') FROM tickets ORDER BY rowid DESC").fetchall()
         c.close()
     except Exception as e:
         print(f"  ✗ 读不出来：{type(e).__name__}: {e}")
@@ -82,22 +83,19 @@ def main():
 
     n = preview()
 
-    if server_running():
+    # 预览读的是只读快照 ✓ 服务端在跑也能读 ✓（实测可以 ✓）
+    # 但【真删】必须先关服务端 ✓ —— 数据库被它占着 ✗
+    if server_running() and yes:
         print("\n  ✗ 服务端正在运行（5000 端口在听）✗")
-        print("     → 先关掉服务端 ✓ 再跑这个 ✓ 删完再启动 ✓")
-        if yes:
-            print("\n  ✗ 因为服务端在跑，这次不删任何东西 ✓")
-            raise SystemExit(1)
-        else:
-            print("     （预览模式，本来也不会删 ✓）")
+        print("     → 【真删】之前必须先关服务端 ✓（SQLite 被占用 ✓）删完再启动 ✓")
+        raise SystemExit(1)
+    if server_running():
+        print("\n  ⚠ 服务端在跑 ✓ —— 预览不受影响 ✓ 但【加 --yes 真删】前要先关它 ✓")
 
     if not yes:
         print("\n  这是【预览模式】✓ 什么都没删 ✓")
-        print("  真要删：加 --yes ✓（想先备份就再加 --backup ✓）")
+        print("  真要删：先关服务端 ✓ 再加 --yes ✓（想先备份就再加 --backup ✓）")
         return
-
-    if server_running():
-        raise SystemExit(1)
 
     files = targets()
     if not files:
