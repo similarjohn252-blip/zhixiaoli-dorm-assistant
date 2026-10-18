@@ -51,7 +51,46 @@ AUDIO_DIR = os.environ.get("ZHIXIAOLI_AUDIO_DIR", r"E:\天翼\语音")
 TTS_FORMAT = os.environ.get("ZHIXIAOLI_TTS_FORMAT", "wav").lower()
 BAIDU_AUE = 6 if TTS_FORMAT == "wav" else 3
 # 给 ESP32 的下载地址里用的 IP，必须是电脑的局域网 IP
-PUBLIC_HOST = os.environ.get("ZHIXIAOLI_PUBLIC_HOST", "192.168.137.1")
+# ================= 对外地址：配置错了就自动纠正（2026-10-18 ✓）=================
+# ⚠️ 校园网 IP **三天变了三次** ✗（10.103.7.74 → 10.203.24.251 → 10.103.51.219 ✓）
+#    每变一次就要手动改 .env + 三份文档 ✗ 漏一次就"板子/评委拿到的音频地址打不开"✗
+#    2026-10-15 板子"没声音"就是这个原因 ✓
+# 做法 ✓：启动时探测本机地址 ✓ 配置值如果**不在本机地址里** → 自动改用探测值并大声提示 ✓
+#    为什么不总是用探测值 ✗：多网卡/虚拟网卡（VMware / WSL / VPN）时可能选错 ✓
+#    → **能手动配就优先 ✓，只在配错时才纠正 ✓**
+def _local_ips():
+    """本机所有可能的 IP ✓（主出口地址 + 主机名解析出来的 ✓）与被拷贝方一致 ✓"""
+    import socket
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))      # UDP connect 不发包 ✓ 只为问出默认出口 IP ✓
+            ips.add(s.getsockname()[0])
+        finally:
+            s.close()
+    except Exception:
+        pass
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            ips.add(ip)
+    except Exception:
+        pass
+    return sorted(i for i in ips if not i.startswith("127."))
+
+
+_CONFIGURED_HOST = (os.environ.get("ZHIXIAOLI_PUBLIC_HOST") or "192.168.137.1").strip()
+_HOST_IS_LOCAL_ALIAS = _CONFIGURED_HOST in ("127.0.0.1", "localhost", "0.0.0.0")
+if not _HOST_IS_LOCAL_ALIAS:
+    _ips = _local_ips()
+    if _ips and _CONFIGURED_HOST not in _ips:
+        print(f"[配置] ⚠️ ZHIXIAOLI_PUBLIC_HOST = {_CONFIGURED_HOST} 不在本机地址里 ✗", flush=True)
+        print(f"[配置]    本机实际地址：{', '.join(_ips)} ✓ → 已自动改用 {_ips[0]} ✓", flush=True)
+        print(f"[配置]    ⚠️ 请顺手把 .env 里那一行改成 {_ips[0]} ✓"
+              f"（文档/队友那边也要同步 ✓ 否则他们照着旧地址会连不上 ✗）", flush=True)
+        _CONFIGURED_HOST = _ips[0]
+
+PUBLIC_HOST = _CONFIGURED_HOST
 PUBLIC_PORT = int(os.environ.get("ZHIXIAOLI_PUBLIC_PORT", "5000"))
 PORT = int(os.environ.get("ZHIXIAOLI_PORT", "5000"))
 
