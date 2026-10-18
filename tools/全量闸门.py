@@ -32,7 +32,7 @@ STEPS = [
     ("pytest", "快测试层（纯逻辑）", [PY, "-m", "pytest", "tests", "-q"], 180, False, False),
     ("ruff", "静态检查", [PY, "-m", "ruff", "check", "."], 180, False, False),
     ("依赖", "依赖版本 12 项", [PY, os.path.join(ROOT, "tools", "检查依赖.py")], 240, False, False),
-    ("平台端", "平台端 9 项", [PY, os.path.join(ROOT, "平台端测试.py")], 420, False, False),
+    ("平台端", "平台端 13 项", [PY, os.path.join(ROOT, "平台端测试.py")], 420, False, False),
     ("全量", "主门禁（含固件编译）", [PY, os.path.join(ROOT, "全量测试.py")], 900, False, False),
     ("演练", "故障演练 6 场景", [PY, os.path.join(ROOT, "tools", "故障演练.py")], 600, True, False),
     ("部署", "部署自检（对外可达）", [PY, os.path.join(ROOT, "tools", "部署自检.py")], 300, False, True),
