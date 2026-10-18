@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>智小理 · 宿舍事务助手</title>
+<!-- 地址每几天会变 ✗ 最新值：运行 tools\部署自检.py 看「[1] 本机可用地址」✓ -->
 <style>
 :root{
   --bg:#f4f6fb;
@@ -176,12 +177,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
 <script>
 // ============ 只在这里改地址（不要在别处硬编码 IP）============
 const CONFIG = {
-  // ⚠️ 2026-10-15 更新：校园网 IP 变了（10.103.7.74 → 10.203.24.251）✓
+  // ⚠️ 2026-10-15 更新：校园网 IP 变了（10.103.51.219 → 10.103.51.219）✓
   //    它【还会变】✓ → 拿到新地址只改这一处 ✓（用 SERVER + "/v1/health" 自测是否有效 ✓）
-  SERVER: "http://10.203.24.251:5000",
+  SERVER: "http://10.103.51.219:5000",
   // 看板子状态：走服务端的【免 token 只读】接口 ✓（不要直连板子的 192.168.137.x ✗
   //   那是内网地址，跨网络必然打不通 ✓ 而且会暴露内网结构 ✓）
-  BOARD:  "http://10.203.24.251:5000/v1/board",
+  BOARD:  "http://10.103.51.219:5000/v1/board",
 };
 
 // ⚠️ 2026-10-15 更正 ✗：这一页【不需要任何 token】—— 原来那版把真 token 写在这里 ✓
