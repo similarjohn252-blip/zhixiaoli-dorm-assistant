@@ -48,16 +48,25 @@ def test_selfheal_retries_with_bare_question(monkeypatch):
     assert "自愈" in r["source"], f"来源该标出来 ✓ 实际={r['source']!r}"
 
 
-def test_no_retry_when_no_context_injected(monkeypatch):
-    """纯问题（记忆空 → 没注入上下文）→ 即使答不上来也**不重试** ✓（省时间 ✓）"""
+def test_selfheal_retries_even_without_context(monkeypatch):
+    """⭐ 纯问题（没注入上下文）**也要重试** ✓ —— 因为失准是【随机】的 ✓
+
+    ⚠️ 2026-10-18 修正 ✗：第一版我只对"注入了上下文"的情况重试 ✓
+       （想法是"纯问题没被稀释，重试白等 4~5 秒"✗）
+       → 闸门立刻用「纯问题答不上来」证明了这是个盲区 ✗：
+         检索本身约 13% 随机 ✗，同一句话再问一次就是给它第二次机会 ✓
+       → 现在两种情况都重试 ✓，只是重试的内容不同（有上下文→裸问题 ✓；纯问题→原问题 ✓）
+    """
     memory._memory["facts"] = []
     memory._memory["events"] = []
-    seen = _patch(monkeypatch, [("这个我暂时查不到", "NONE")])
+    seen = _patch(monkeypatch, [("这个我暂时查不到", "NONE"),
+                                ("咱们学校的校训是明德笃行、自强日新。", "NONE")])
 
     r = brain.handle_query("校训是什么")
 
-    assert len(seen) == 1, f"没注入上下文就不该重试 ✗ 实际问了 {len(seen)} 次"
-    assert "查不到" in r["voice_text"]
+    assert len(seen) == 2, f"纯问题失准也要重问一次 ✓ 实际问了 {len(seen)} 次"
+    assert seen[1] == "校训是什么", f"纯问题重问的就是原问题 ✓ 实际={seen[1]!r}"
+    assert "明德" in r["voice_text"], f"应该用重问的回答 ✗ 实际={r['voice_text']!r}"
 
 
 def test_selfheal_retries_at_most_once(monkeypatch):

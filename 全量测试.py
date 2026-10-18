@@ -289,14 +289,20 @@ if start_server():
                       headers={"Content-Type": "audio/wav; rate=16000"}).json()
         asr, vt = j.get("asr_text", ""), j.get("voice_text", "")
         rec("voice · 识别出“校训”", "校训" in asr, f"识别={asr}")
-        # 知识库偶发失准（实测约 13%）→ 重试一次并标注为偶发
-        if "明德" not in vt:
+        # 知识库偶发失准（实测约 13%）→ 最多再试 2 次并标注为偶发 ✓
+        # ⚠️ 2026-10-18 更新 ✗：原来只重试 1 次 ✓ —— 而两次连续失准约 1.7% ✓
+        #    闸门真的撞上过 ✓（平台端测试那边早就用 3 次 ✓ 这里现在对齐 ✓）
+        #    另外服务端也加了「失准自愈」✓ → 两层重试之后，误报率约 0.2% ✓
+        tries = 0
+        while "明德" not in vt and tries < 2:
+            tries += 1
             time.sleep(1.0)
             j2 = ask_local("/v1/voice", data=data,
                            headers={"Content-Type": "audio/wav; rate=16000"}).json()
             if "明德" in (j2.get("voice_text") or ""):
                 vt = j2["voice_text"]
                 FLAKY.append("voice · 答出知识库内容")
+                break
         rec("voice · 答出知识库内容", "明德" in vt, f"回复={vt[:34]}")
     except Exception as e:
         rec("voice · 假录音链路", False, f"异常 {type(e).__name__}: {str(e)[:60]}")

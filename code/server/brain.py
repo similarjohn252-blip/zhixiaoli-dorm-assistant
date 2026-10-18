@@ -403,21 +403,29 @@ def handle_query(query):
             with trace.timed("平台"):
                 reply, action = ask_cloud(enriched)
             source = "云端平台"
-            # ⭐ 失准自愈：第一次像「查不到」且这次**注入过上下文** → 用裸问题再问一次 ✓
-            #    （只在 enriched != query 时重试 ✓ —— 原因见 _is_weak 上面那段注释 ✓）
-            if enriched != query and _is_weak(reply):
-                print("[自愈] 第一次像「查不到」→ 用裸问题重问一次 ✓", flush=True)
+            # ⭐ 失准自愈：回答像「查不到」→ 重问一次 ✓
+            #    ⚠️ 2026-10-18 更新 ✗：**两种情况都要重试**，但重试的东西不同 ✓
+            #      ① 注入过上下文（enriched != query）→ 用【裸问题】✓
+            #         （治的是「上下文稀释」这个**确定性**原因 ✓ 实测 5 条事实时临界条目会被顶出阈值 ✓）
+            #      ② 纯问题（enriched == query）→ 用【同一个问题】✓
+            #         （治的是「随机失准」这个**概率**原因 ✓ —— 检索本身约 13% 随机 ✗
+            #           同一句话再问一次，等于给它第二次机会 ✓）
+            #    我第一版只做了 ①✗ → 闸门立刻用「纯问题答不上来」这个场景证明了漏 □
+            if _is_weak(reply):
+                retry_q = query if enriched == query else query
+                how = "原问题" if enriched == query else "裸问题"
+                print(f"[自愈] 第一次像「查不到」→ 用{how}重问一次 ✓", flush=True)
                 try:
                     with trace.timed("自愈重问"):
-                        reply2, action2 = ask_cloud(query)
+                        reply2, action2 = ask_cloud(retry_q)
                     if not _is_weak(reply2):
                         reply, action = reply2, action2
                         source = "云端平台·自愈"
-                        trace.log("selfheal", ok=True, query=query[:60])
-                        print("[自愈] 裸问题这次答出来了 ✓", flush=True)
+                        trace.log("selfheal", ok=True, how=how, query=query[:60])
+                        print("[自愈] 重问这次答出来了 ✓", flush=True)
                     else:
-                        trace.log("selfheal", ok=False, query=query[:60])
-                        print("[自愈] 裸问题也没答出来（知识库里可能真的没有 ✓）", flush=True)
+                        trace.log("selfheal", ok=False, how=how, query=query[:60])
+                        print("[自愈] 重问还是没答出来（知识库里可能真的没有 ✓）", flush=True)
                 except Exception as e2:      # 重问失败就忽略 ✓ 别把第一次的回答也弄丢 ✗
                     print(f"[自愈] 重问失败（忽略，用第一次的回答）: {type(e2).__name__}", flush=True)
             # 平台要是答非所问/没下发动件动作，这里按用户原话补上
