@@ -324,6 +324,10 @@ if start_server():
         rec("ticket · 台账可读", "tickets" in tk and "stats" in tk,
             f"{len(tk.get('tickets') or [])} 张 stats={tk.get('stats')}")
 
+        # ⚠️ 2026-10-18 修：上面刚清空过记忆 ✓ → 此时没有房间号 ✗
+        #    而服务端现在会【先追问房间号、不建单】✓（补槽位功能 ✓ 这是正确行为 ✓）
+        #    → 所以要测的「报修带真实工单号」必须先给它一个房间 ✓（更像真实用法 ✓）
+        ask_local("/v1/memory", {"text": "用户住 3 栋 502"})
         c = ask_local("/v1/chat", {"query": "我们宿舍的灯坏了，要报修"}).json()
         rec("ticket · 报修回答带真实工单号", "BX" in (c.get("voice_text") or ""),
             (c.get("voice_text") or "")[-40:])

@@ -11,6 +11,8 @@ Werkzeug==3.1.9
 requests==2.34.2
 urllib3==2.8.0
 python-dotenv==1.2.4
-edge-tts==7.2.8
+# ⚠️ 必须是 7.3.1 及以上 ✓ —— 7.2.8 会被微软 403 拒绝（2026-10-15 实测 ✓）
+#    所以这里不是「随便锁一个新版」✗，而是【旧版根本不能用】✓
+edge-tts==7.3.1
 # edge-tts 的 mp3 是 MPEG-2/24kHz，板子解不了 ✗ → 用它转成 16k WAV ✓
 soundfile==0.14.0

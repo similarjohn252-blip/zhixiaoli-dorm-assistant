@@ -300,6 +300,25 @@ def local_reply(query):
                 "预约会议室、查图书馆、放歌这些现在都能用。"), "NONE"
     return "我在呢，有什么可以帮你的吗？", "NONE"
 
+# ================= 失准自愈（2026-10-18 新增 ✓）=================
+# 为什么需要 ✗：知识库检索实测约 **13% 随机失准** ✓（15 次里 2 次答"查不到" ✓）
+#   而且我们**测出过原因之一** ✓：把「背景/历史」拼进 query 会**稀释检索** ✗
+#   （实测：5 条事实时，"校训"这种临界条目最容易被顶出阈值 ✓）
+# → 所以：**第一次答不上来时，用【裸问题】再问一次** ✓✓（裸问题检索最稳 ✓）
+#   两条硬规矩 ✗：
+#     ① **只在注入过上下文时才重试** ✓（enriched != query ✓）——
+#        纯问题本来就没被稀释，重试只会白等 4~5 秒 ✗
+#     ② **最多重试一次** ✓ —— 不能变成"答不上来就狂问" ✗
+_WEAK_REPLY = ("查不到", "没查到", "没有找到", "找不到", "暂时没有",
+               "没有相关信息", "无法回答", "不太清楚", "不确定")
+
+
+def _is_weak(reply) -> bool:
+    """这句话像不像「我查不到」✓（用来触发自愈 ✓ 不是用来判断"答得好不好" ✗）"""
+    r = (reply or "").strip()
+    return bool(r) and any(w in r for w in _WEAK_REPLY)
+
+
 # ================= 意图 + 合成（文字入口和语音入口共用） =================
 def handle_query(query):
     """返回 dict：voice_text / device_action / audio_url /
@@ -384,6 +403,23 @@ def handle_query(query):
             with trace.timed("平台"):
                 reply, action = ask_cloud(enriched)
             source = "云端平台"
+            # ⭐ 失准自愈：第一次像「查不到」且这次**注入过上下文** → 用裸问题再问一次 ✓
+            #    （只在 enriched != query 时重试 ✓ —— 原因见 _is_weak 上面那段注释 ✓）
+            if enriched != query and _is_weak(reply):
+                print("[自愈] 第一次像「查不到」→ 用裸问题重问一次 ✓", flush=True)
+                try:
+                    with trace.timed("自愈重问"):
+                        reply2, action2 = ask_cloud(query)
+                    if not _is_weak(reply2):
+                        reply, action = reply2, action2
+                        source = "云端平台·自愈"
+                        trace.log("selfheal", ok=True, query=query[:60])
+                        print("[自愈] 裸问题这次答出来了 ✓", flush=True)
+                    else:
+                        trace.log("selfheal", ok=False, query=query[:60])
+                        print("[自愈] 裸问题也没答出来（知识库里可能真的没有 ✓）", flush=True)
+                except Exception as e2:      # 重问失败就忽略 ✓ 别把第一次的回答也弄丢 ✗
+                    print(f"[自愈] 重问失败（忽略，用第一次的回答）: {type(e2).__name__}", flush=True)
             # 平台要是答非所问/没下发动件动作，这里按用户原话补上
             reply, action, override = _action_guard(query, reply, action)
             if override:

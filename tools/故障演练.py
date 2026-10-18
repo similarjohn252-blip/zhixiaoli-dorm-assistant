@@ -95,7 +95,9 @@ def _checks(n: int):
         r = brain.handle_query("我们宿舍的灯坏了，要报修")
         # 来源可能带后缀（如"本地回退·建单"）→ 取前缀比 ✓
         base_src = (r["source"] or "").split("·")[0]
-        ok = base_src in ("云端平台", "本地回退", "本地规则", "本地台账") and bool(r["voice_text"])
+        # ⚠️ 2026-10-18 补：服务端新增了「本地追问」✓（报修缺房间号时先问一句 ✓）
+        #    那是【本地给出的、正确的人话】✓ 完全符合本演练的意图（平台挂了也不能崩 ✓）
+        ok = base_src in ("云端平台", "本地回退", "本地规则", "本地台账", "本地追问") and bool(r["voice_text"])
         print(f"RESULT|{'✓' if ok else '✗'} 仍然给出了回答：source={r['source']} "
               f"动作={r['device_action']} 回复={r['voice_text'][:44]}")
 
