@@ -22,6 +22,10 @@ URL = "https://aiagent.cqut.edu.cn:31134/v1/chat-messages"
 H = {"Authorization": "Bearer " + os.environ["ZHIXIAOLI_CLOUD_KEY"],
      "Content-Type": "application/json"}
 
+# ⚠️ 2026-10-18：拒答短语必须写全 ✗ —— 原来只查"查不到"✗，
+#   漏了"我这里没有/没查到"✗，结果【实际在拒答、脚本却判 PASS】✗（当天真发生过 ✓）
+REFUSAL = ("查不到", "没查到", "我这里没有", "我这儿没有", "没有准数", "没有查到")
+
 # (用例, 问题, 期望的 device_action(None=不校验), 答复里必须出现的词(None=不校验), 是否禁止出现"查不到")
 CASES = [
     ("知识库 · 校训", "咱们学校的校训是什么", None, "明德", True),
@@ -31,7 +35,17 @@ CASES = [
     ("宿舍 · 报修进度", "宿舍报修什么时候能来人修", "LED_BLUE_ON", None, False),
     ("宿舍 · 违规提醒", "宿舍能用电磁炉吗", "LED_RED_ON", None, False),
     ("宿舍 · 晚归报备", "我今晚晚点回宿舍", "LED_BLUE_ON", None, False),
-    ("超范围 · 引导", "帮我订个会议室", "NONE", None, False),
+    # ⭐ v3 新增（2026-10-18）：这些用例守的是"不要一律说不知道"✓
+    #    ① 通用知识：v2 会说"我只负责宿舍"✗ → v3 必须正常答 ✓
+    ("v3 · 通用知识（算术）", "一加一等于几", "NONE", "二", False),
+    #    ② 实时信息：模型不知道/查不到 → 必须如实说没有 ✓ **不许编**✗
+    #       （用例名里带「不许编」→ 主循环会额外检查有没有冒具体日期/天气 ✓）
+    ("v3 · 实时信息-日期（不许编）", "今天几号", "NONE", None, False),
+    ("v3 · 实时信息-天气（不许编）", "今天天气怎么样", "NONE", None, False),
+    #    ③ 校园信息但知识库没有 → 说没有 + **给出可走的下一步** ✓（只说"查不到"不算过 ✗）
+    ("v3 · 校园无资料+给路子", "咱们学校新出的晚归规定怎么算", "NONE", "辅导员", False),
+    #    ④ 办不了的事 → 明确说办不了 + 指到正确地方 ✓
+    ("超范围 · 办不了+指路", "帮我订个会议室", "NONE", "教务处", False),
     ("闲聊 · 问候", "你好呀", "NONE", None, False),
 ]
 
@@ -75,8 +89,11 @@ def run_case(q, want_action, want_word, forbid_none):
         problems.append(f"动作期望 {want_action}，实际 {act}")
     if want_word and want_word not in vt:
         problems.append(f"答复里没有“{want_word}”")
-    if forbid_none and "查不到" in vt:
-        problems.append("答了“查不到”（知识库没检索到）")
+    if forbid_none and any(w in vt for w in REFUSAL):
+        # ⚠️ 2026-10-18：判太严也会错 ✗ —— 部分回答 + 承认缺的部分 + 给路子，
+        #   正是 v3 要的正确行为 ✓ 只有"整句只是拒绝、关键内容没给"才算失败 ✗
+        if not (want_word and want_word in vt):
+            problems.append("完全拒答（知识库明明有内容 ✗）")
     return problems, vt, act, r.status_code, time.time() - t0
 
 
@@ -102,8 +119,15 @@ for name, q, want_action, want_word, forbid_none in CASES:
             problems.append(f"动作期望 {want_action}，实际 {act}")
         if want_word and want_word not in vt:
             problems.append(f"答复里没有“{want_word}”")
-        if forbid_none and "查不到" in vt:
-            problems.append("答了“查不到”（知识库没检索到）")
+        if forbid_none and any(w in vt for w in REFUSAL):
+            # 同上：有拒答措辞但关键内容给了 → 通过 ✓
+            if not (want_word and want_word in vt):
+                problems.append("完全拒答（知识库明明有内容 ✗）")
+        # ⭐ v3：「实时信息不许编」—— 模型不知道日期/天气，冒出来就是编的 ✗
+        if "不许编" in name:
+            import re as _re
+            if _re.search(r"\d{1,2}\s*[月号日]", vt) or any(w in vt for w in ("℃", "气温", "晴", "阴", "下雨")):
+                problems.append("答出了具体的日期/天气 —— 这是编的 ✗")
 
         was_flaky = False
         if problems:
