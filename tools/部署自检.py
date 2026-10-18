@@ -115,7 +115,14 @@ except Exception as e:
 if health:
     print("\n[6] 服务端自检（来自 /v1/health）：")
     for k, v in (health.get("checks") or {}).items():
-        print(f"      {'✓' if v.get('ok') else '✗'} {k:<8} {json.dumps(v, ensure_ascii=False)[:90]}")
+        # ⚠️ 2026-10-18 修语义 ✗：`board` 离线是【正常】情况 ✓
+        #    （板子不在身边 / 热点没开 —— 本脚本第 5 步自己就写着「属正常，不影响其它检查」✓）
+        #    它不该用 ✗：全量闸门会把「以 ✗ 开头的行」当成失败标记 ✓
+        #      → 今天就这样误报了一次（明明结论是「可以对外演示」✓ 闸门却红 ✗）
+        #    真正的硬盘/记忆/云端问题仍然用 ✗ ✓（那些是真要处理的 ✓）
+        ok = bool(v.get("ok"))
+        mark = "✓" if ok else ("⚠" if k == "board" else "✗")
+        print(f"      {mark} {k:<8} {json.dumps(v, ensure_ascii=False)[:90]}")
     if health.get("failing"):
         issues.append("服务端自检未过：" + ",".join(health["failing"]))
 
