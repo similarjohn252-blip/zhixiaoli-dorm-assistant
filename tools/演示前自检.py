@@ -74,6 +74,10 @@ TOKEN = _token()
 REFUSE = re.compile(r"我[这那][里儿边]?\s*(没有|查不到|没查到)|查不到|没查到|没有查到|没有准确依据|没有这条")
 
 
+SLOW = []      # [(名字, 秒)] —— 超过 SLOW_SEC 的句子 ✓
+SLOW_SEC = 8.0  # 演示时等 8 秒以上就很难看 ✗
+
+
 def post(path, body):
     h = {"Content-Type": "application/json"}
     if TOKEN:
@@ -97,6 +101,8 @@ def check_one(q, want_action, kws, forbid_refuse):
     t0 = time.time()
     _, j = post("/v1/chat", {"query": q})
     dt = time.time() - t0
+    if dt > SLOW_SEC:
+        SLOW.append((q, dt))
     vt = (j.get("voice_text") or "").strip()
     act = j.get("device_action") or ""
     audio = j.get("audio_url") or ""
@@ -178,7 +184,7 @@ for name, q, want_action, kws, forbid in CASES:
     else:
         failed += 1
         tag = "FAIL"
-    print(f"\n  [{tag}] {name}   {dt:.1f}s")
+    print(f"\n  [{tag}] {name}   {dt:.1f}s" + ("   ⚠ 慢（演示时避开 ✗）" if dt > SLOW_SEC else ""))
     print(f"         问：{q}")
     print(f"         答：{vt[:76]}")
     print(f"         动作：{act}   音频：{'✓' if audio else '✗'}")
@@ -269,6 +275,10 @@ for _name, _q, _kind in (
 
 # ---------- 2. 结论 ----------
 print("\n" + "=" * 88)
+if SLOW:
+    print(f"  ⚠ 有 {len(SLOW)} 句超过 {SLOW_SEC:.0f} 秒（演示时优先避开 ✗ 或提前备好答案 ✓）：")
+    for _q, _dt in sorted(SLOW, key=lambda x: -x[1]):
+        print(f"     {_dt:5.1f}s  {_q}")
 print(f"  通过 {passed} 项 ｜ 偶发 {flaky} 项 ｜ 失败 {failed} 项 ｜ 硬件告警 {fatal} 项")
 print("=" * 88)
 if failed == 0 and fatal == 0:
