@@ -189,6 +189,13 @@ void setup() {
     Serial.println("使用固定 IP（配置见 secrets.h）");
 #endif
     WiFi.begin(ssid, password);
+
+    // ⚠️ 2026-10-19 加 ✗：ESP32 默认开 modem sleep ✓
+    //    闲置几分钟后射频进省电，链路其实已经死了 ✗
+    //    但 WiFi.status() **仍然报「已连接」**✗ → loop 里那个 8 秒重连守护【永远不触发】✗
+    //    表现就是：重启后能用 ✓ 闲置一会儿再按就「上传失败」✗（实测就是这个 ✓）
+    //    → 关掉省电模式 ✓（代价：功耗略高 ✓ 但我们是 USB 供电 ✓ 无所谓 ✓）
+    WiFi.setSleep(false);
     unsigned long wifiTick = millis();
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
