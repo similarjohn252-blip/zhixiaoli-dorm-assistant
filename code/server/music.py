@@ -4,13 +4,14 @@
 """
 import hashlib
 import os
+import time
 import traceback
 
 import requests
 
 from . import memory
 from . import trace
-from .config import AUDIO_DIR, AUDIO_FILENAME, PUBLIC_HOST, PUBLIC_PORT
+from .config import AUDIO_DIR, PUBLIC_HOST, PUBLIC_PORT
 
 
 def _base():
@@ -111,6 +112,13 @@ def _score_result(it, term):
         score += 2                                    # 歌名匹配
     if any(w in name for w in _COVER_WORDS):
         score -= 2                                    # 翻唱/钢琴版/伴奏往后排
+    # ⚠️ 2026-10-19 加 ✗：查的歌手名出现在【歌名】里 → 那多半是首山寨歌 ✓
+    #    实测：问"放周杰伦的七里香"✓ 结果选中了"恶童ETON 的《周杰伦》"✗
+    #    （歌名恰好撞上歌手名 ✓ 靠 +2 赢了 ✓ 而真原唱没赢 ✗）
+    for _zh in _ARTIST_ALIAS:
+        if _zh in name:
+            score -= 4
+            break
     return score
 
 
@@ -139,7 +147,9 @@ def search_music(term):
             items = [it for it in (r.json().get("results") or [])
                      if it.get("previewUrl")]
             if items:
-                best = max(items, key=lambda it: _score_result(it, term))
+                # ⚠️ 2026-10-19 修 ✗：原来这里传的是 term（原始词 ✓）
+                #    而搜索用的是 query_term（补了英文歌手名 ✓）→ 别名加分那段永远不生效 ✗
+                best = max(items, key=lambda it: _score_result(it, query_term))
                 return ((best.get("trackName") or "").strip(),
                         (best.get("artistName") or "").strip(),
                         best["previewUrl"])
@@ -176,9 +186,36 @@ def download_music(term, url):
         return ""
 
 
+def _rotate_tts(directory, keep=30):
+    """只保留最近 keep 个 output_*.wav ✓ —— 唯一文件名会堆积 ✗ 不清会涨到几万个 ✓"""
+    try:
+        files = [os.path.join(directory, f) for f in os.listdir(directory)
+                 if f.startswith("output_") and f.endswith(".wav")]
+        if len(files) <= keep:
+            return
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for p in files[keep:]:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+    except Exception:
+        pass          # 清理失败绝不影响播报 ✓
+
+
 def make_tts(text):
-    """把文本合成为 output.wav，返回可下载地址（失败返回 ""）。"""
-    path = os.path.join(AUDIO_DIR, AUDIO_FILENAME)
+    """把文本合成成一个【唯一文件名】的 wav，返回可下载地址（失败返回 ""）。
+
+    ⚠️ 2026-10-19 改 ✗：原来是固定 output.wav ✓
+       → 网页每次赋同一个 src ✗ → 浏览器【src 没变就不重新加载】✗
+       → 用户听到的是上一次回答的声音 ✗（实测："网页版放歌，播的是上次回答的音频"✓）
+       → 改成 output_<请求号>.wav ✓ URL 每次都不同 ✓ 强制重新拉 ✓
+    """
+    # ⚠️ 光用 trace.rid() 不够 ✗ —— 它只有在 trace.start() 之后才变 ✓
+    #    非请求上下文里它会一直相同 ✗ → 文件名还是重复 ✗ → 再加时间纳秒 ✓
+    _rid = "".join(ch for ch in (trace.rid() or "") if ch.isalnum())[:12] or "x"
+    _name = f"output_{_rid}_{time.time_ns() % 10**9}.wav"
+    path = os.path.join(AUDIO_DIR, _name)
     try:
         engine = synthesize(text, path)
         # ⚠️ 2026-10-15 加：把【这次是谁在说话】记进链路日志 ✓
@@ -192,8 +229,9 @@ def make_tts(text):
             pass
         if os.path.getsize(path) > 0:
             print(f"[TTS] {engine} 合成成功: {path}", flush=True)
-            return f"{_base()}/audio/{AUDIO_FILENAME}"
+            return f"{_base()}/audio/{_name}"
         print("[TTS] 生成了 0 字节文件，视为失败", flush=True)
+        _rotate_tts(AUDIO_DIR, keep=30)
     except Exception:
         print("[TTS] 合成失败，本次只回文本：", flush=True)
         traceback.print_exc()

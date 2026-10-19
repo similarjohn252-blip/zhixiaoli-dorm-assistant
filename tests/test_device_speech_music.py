@@ -250,3 +250,41 @@ def test_music_score_prefers_original_over_cover():
     cover = {"trackName": "七里香 (钢琴版)", "artistName": "Some Pianist"}
     assert music._score_result(original, term) > music._score_result(cover, term), \
         f"原唱应高于翻唱 ✗ 原唱={music._score_result(original, term)} 翻唱={music._score_result(cover, term)}"
+
+
+# ═══════════════════════════════════════════════════════════
+# C 修复的回归：TTS 文件名必须唯一（2026-10-19 ✓）
+# ═══════════════════════════════════════════════════════════
+def test_make_tts_uses_unique_filename(monkeypatch, tmp_path):
+    """⭐ 每次 TTS 的文件名必须不同 ✓
+
+    为什么 ✗：固定 output.wav → 网页每次赋同一个 src →
+    浏览器【src 没变就不重新加载】→ 用户听到上一次回答的声音 ✗（实测过 ✓）
+    """
+    monkeypatch.setattr(music, "AUDIO_DIR", str(tmp_path))
+
+    def fake_synth(text, path):
+        with open(path, "wb") as f:
+            f.write(b"RIFF" + b"\x00" * 100)
+        return "fake_engine"
+
+    monkeypatch.setattr(music, "synthesize", fake_synth)
+    u1 = music.make_tts("你好")
+    u2 = music.make_tts("你好")
+    assert u1 and u2, f"应该都返回地址 ✗ {u1!r} {u2!r}"
+    assert u1 != u2, f"两次的文件名必须不同 ✗ 实际都是 {u1!r}"
+    assert "output_" in u1 and "output_" in u2
+
+
+def test_score_penalizes_song_named_after_artist():
+    """⭐ 歌名撞上歌手名 → 必须扣分 ✓
+
+    实测 ✗：问"放周杰伦的七里香" → 选中了「恶童ETON 的《周杰伦》」✗
+    （歌名恰好是"周杰伦"三个字 ✓ 靠 +2 赢了 ✓ 而真原唱没赢 ✗）
+    """
+    term = "周杰伦的七里香 Jay Chou"
+    real = {"trackName": "七里香", "artistName": "Jay Chou"}
+    fake = {"trackName": "周杰伦", "artistName": "恶童ETON"}
+    s_real = music._score_result(real, term)
+    s_fake = music._score_result(fake, term)
+    assert s_real > s_fake, f"原唱应高于\\u201c歌名撞歌手名\\u201d的山寨 ✓ 实际 {s_real} vs {s_fake}"
