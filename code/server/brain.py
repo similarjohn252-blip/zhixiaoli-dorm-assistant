@@ -336,7 +336,12 @@ FIXED_LEAVE = (
 FIXED_PROGRESS = (
     "报修进度也能在知行理工里看，搜索后勤报修进去，就能看到你的单子啦。"
 )
+FIXED_STUDY = (
+    "想找地方自习的话，在知行理工里搜索本科生教务管理系统，"
+    "点信息查询，再点查询空教室，按你想要的时间查，就能看到哪间空着啦。"
+)
 _LEAVE_WORDS = ("请假", "请个假", "请一天假", "请几天假", "病假", "事假")
+_STUDY_WORDS = ("自习室", "自习的地方", "空教室", "查教室", "哪里有自习")
 
 
 def handle_query(query):
@@ -377,6 +382,11 @@ def handle_query(query):
     if any(w in query for w in _LEAVE_WORDS):
         print("[固定话术] 请假 → 指路知行理工", flush=True)
         return _finish(query, FIXED_LEAVE, "LED_GREEN_ON", "本地固定话术")
+
+    # 3.7) 查自习室 / 空教室 → 固定话术（2026-10-19 新增 ✓ 同样提前返回 ✓）
+    if any(w in query for w in _STUDY_WORDS):
+        print("[固定话术] 自习室 → 指路教务管理系统", flush=True)
+        return _finish(query, FIXED_STUDY, "LED_GREEN_ON", "本地固定话术")
 
     # 4) 放歌类请求单独走音乐分支：云端给不了音频
     if MUSIC_ENABLE:

@@ -185,3 +185,13 @@ def test_receipt_missing_ticket_is_404_text():
     r = _flask_client().get("/v1/tickets/BX_NOT_EXIST/receipt.txt")
     assert r.status_code == 404
     assert "没有这张工单" in r.data.decode("utf-8")
+
+
+def test_study_room_points_to_jwxt(monkeypatch):
+    """查自习室 → 指路教务管理系统（本地固定话术，0 秒）"""
+    _setup(monkeypatch, facts=[], reply="好的。")
+    r = brain.handle_query("我想查自习室")
+    vt = r["voice_text"]
+    assert "知行理工" in vt and "空教室" in vt, vt
+    assert r["source"] == "本地固定话术"
+    assert r["device_action"] == "LED_GREEN_ON"
