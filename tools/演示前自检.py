@@ -236,6 +236,37 @@ for _name, _q, _kind in (("时间·今天几号", "今天几号", "date"),
         print(f"         答：{_vt[:76]}")
         print(f"         ⚠ 没答对：今天是 {_today.month} 月 {_today.day} 日 星期{_week} ✓")
 
+# ---------- 1.7 天气工具（2026-10-19 ✓）----------
+# ⚠️ 天气查询节点的城市写死成「重庆」✗ → 所以第二条必须验"只查重庆"✓
+#    模型很爱"顺着答"✗ —— 问北京它就报北京的（其实是重庆的 ✓）→ 那就成了编 ✗✗
+_WEATHER_WORDS = ("度", "阴", "晴", "多云", "雨", "雪", "风", "℃", "天气")
+for _name, _q, _kind in (
+        ("天气·重庆要真答", "今天重庆天气怎么样", "real"),
+        ("天气·只查重庆", "北京天气怎么样", "limit")):
+    try:
+        _, _j = post("/v1/chat", {"query": _q})
+        _vt = (_j.get("voice_text") or "")
+    except Exception as _e:
+        failed += 1
+        print(f"\n  [FAIL] {_name}   异常 {type(_e).__name__}")
+        continue
+    if _kind == "real":
+        _ok = ("查不了" not in _vt) and ("找不到" not in _vt) and any(w in _vt for w in _WEATHER_WORDS)
+    else:
+        _ok = ("只" in _vt and "重庆" in _vt) or ("只能" in _vt)
+    if _ok:
+        passed += 1
+        print(f"\n  [PASS] {_name}")
+        print(f"         答：{_vt[:76]}")
+    else:
+        failed += 1
+        print(f"\n  [FAIL] {_name}")
+        print(f"         答：{_vt[:76]}")
+        if _kind == "real":
+            print("         ⚠ 没报出天气 ✗ → 看天气查询节点的输出是不是空的 ✓")
+        else:
+            print("         ⚠ 没声明「只查重庆」✗ → 它可能把重庆天气当北京报了 ✗✗")
+
 # ---------- 2. 结论 ----------
 print("\n" + "=" * 88)
 print(f"  通过 {passed} 项 ｜ 偶发 {flaky} 项 ｜ 失败 {failed} 项 ｜ 硬件告警 {fatal} 项")
