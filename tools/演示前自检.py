@@ -231,10 +231,15 @@ for _name, _q, _kind in (("时间·今天几号", "今天几号", "date"),
         failed += 1
         print(f"\n  [FAIL] {_name}   异常 {type(_e).__name__}")
         continue
+    # ⚠️ 2026-10-19 修：先把空白去掉再比 ✓
+    #    平台常答「10 月 19 日」带空格 ✗ 原判据按「10月19」匹配 → 误报红 ✓（我的测试太死 ✗）
+    _vts = re.sub(r"\s+", "", _vt)
     if _kind == "date":
-        _ok = (f"{_today.month}月{_today.day}" in _vt) or (f"{_today.month}-{_today.day}" in _vt)
+        _ok = ((f"{_today.month}月{_today.day}" in _vts)
+               or (f"{_today.month}-{_today.day}" in _vts)
+               or (f"{_today.month}/{_today.day}" in _vts))
     else:
-        _ok = (f"星期{_week}" in _vt) or (f"周{_week}" in _vt)
+        _ok = (f"星期{_week}" in _vts) or (f"周{_week}" in _vts)
     if _ok:
         passed += 1
         print(f"\n  [PASS] {_name}")
