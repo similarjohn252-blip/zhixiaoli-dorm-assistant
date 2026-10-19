@@ -15,7 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
-from . import tickets, trace
+from . import trace
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -333,6 +333,9 @@ FIXED_LEAVE = (
     "请假也是手机上打开知行理工，搜索本科生请假，点右下角的加号，"
     "按要求填好提交。提交完记得及时联系班导师哦。"
 )
+FIXED_PROGRESS = (
+    "报修进度也能在知行理工里看，搜索后勤报修进去，就能看到你的单子啦。"
+)
 _LEAVE_WORDS = ("请假", "请个假", "请一天假", "请几天假", "病假", "事假")
 
 
@@ -349,14 +352,13 @@ def handle_query(query):
     # 2) 先判"问报修进度" —— **必须排在报修前面** ✗
     #    否则"我报修的进度怎么样了"会因为含"报修"两个字被当成新报修，
     #    凭空多建一张垃圾工单，进度还查成了那张新的（烟测实测踩到 ✓）
+    # ⚠️ 2026-10-19 改：报修进度也指路知行理工 ✓
+    #    原来读台账报"你的报修单 BX…"✗ —— 但报修已经不在这里办了 ✓
+    #    再报出一张旧单子就自相矛盾了 ✗（用户发现的 ✓）
+    #    台账数据**没有删** ✓ 只是这条分支不再读它 ✓
     if any(w in query for w in _PROGRESS_WORDS):
-        with trace.timed("查台账"):
-            t = tickets.newest()
-        if t is not None:
-            room = f"，{t['room']}" if t["room"] else ""
-            reply = (f"你的报修单 {t['id']}（{t['category']}{room}）现在是"
-                     f"「{tickets.status_text(t['status'])}」。")
-            return _finish(query, reply, tickets.action_for(t["status"]), "本地台账")
+        print("[固定话术] 报修进度 → 指路知行理工", flush=True)
+        return _finish(query, FIXED_PROGRESS, "LED_GREEN_ON", "本地固定话术")
 
     # 2.5) ⚠️ 2026-10-19：原来这里"补槽位建单" ✗ 已停用 ✓
     #      用户要求报修改说固定的话 ✓ 不建单 ✓ 也不追问房间号 ✗

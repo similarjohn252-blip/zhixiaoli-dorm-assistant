@@ -87,14 +87,22 @@ def test_late_return_turns_blue(monkeypatch):
     assert r["device_action"] == "LED_BLUE_ON", f"实际 {r['device_action']}"
 
 
-def test_progress_reads_ledger(monkeypatch):
-    """⭐ 问进度 → 读台账（不该新建工单 ✗）"""
+def test_progress_points_to_zhixingli(monkeypatch):
+    """2026-10-19 改：问进度也指路知行理工
+
+    为什么改：报修已经"不在我们这儿办"了，如果再报出台账里的旧单号，
+    用户视角就自相矛盾（说不在你这办，怎么又有一张单子）。台账数据没删，
+    只是这条分支不再读它。
+    """
     _setup(monkeypatch, facts=["用户住 3 栋 502"], reply="好的。")
-    tickets.create(room="3 栋 502", category="照明", note="灯坏了")
+    tickets.create(room="3 栋 502", category="照明", note="灯坏了")   # 故意放一张旧的
     before = tickets.newest()["id"]
     r = brain.handle_query("我报修的进度怎么样了")
-    assert before in r["voice_text"], "回答里应带台账里的真实工单号 ✓"
-    assert tickets.newest()["id"] == before, "问进度不该新建工单 ✗"
+    assert "知行理工" in r["voice_text"], r["voice_text"]
+    assert "后勤报修" in r["voice_text"], r["voice_text"]
+    assert before not in r["voice_text"], "不该再报出台账里的旧单号"
+    assert r["source"] == "本地固定话术"
+    assert tickets.newest()["id"] == before, "问进度不该新建工单"
 
 
 def test_chitchat_is_none_action(monkeypatch):
