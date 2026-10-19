@@ -206,6 +206,36 @@ for name, q, forbidden in EXTRA:
         print(f"\n  [PASS] {name}")
         print(f"         答：{vt[:76]}")
 
+# ---------- 1.6 时间工具：日期必须答对（2026-10-19 ✓）----------
+# ⚠️ 不能只判"有没有日期"✗ —— 要判【是不是今天】✓
+#    否则模型编一个"10月18日"也会被算通过 ✓ 那就白测了 ✗
+import datetime as _dt
+
+_today = _dt.datetime.now()
+_week = "一二三四五六日"[_today.weekday()]
+for _name, _q, _kind in (("时间·今天几号", "今天几号", "date"),
+                         ("时间·今天星期几", "今天星期几", "week")):
+    try:
+        _, _j = post("/v1/chat", {"query": _q})
+        _vt = (_j.get("voice_text") or "")
+    except Exception as _e:
+        failed += 1
+        print(f"\n  [FAIL] {_name}   异常 {type(_e).__name__}")
+        continue
+    if _kind == "date":
+        _ok = (f"{_today.month}月{_today.day}" in _vt) or (f"{_today.month}-{_today.day}" in _vt)
+    else:
+        _ok = (f"星期{_week}" in _vt) or (f"周{_week}" in _vt)
+    if _ok:
+        passed += 1
+        print(f"\n  [PASS] {_name}")
+        print(f"         答：{_vt[:76]}")
+    else:
+        failed += 1
+        print(f"\n  [FAIL] {_name}")
+        print(f"         答：{_vt[:76]}")
+        print(f"         ⚠ 没答对：今天是 {_today.month} 月 {_today.day} 日 星期{_week} ✓")
+
 # ---------- 2. 结论 ----------
 print("\n" + "=" * 88)
 print(f"  通过 {passed} 项 ｜ 偶发 {flaky} 项 ｜ 失败 {failed} 项 ｜ 硬件告警 {fatal} 项")
