@@ -38,23 +38,16 @@ def test_is_repair_covers_real_phrasings():
         assert not brain._is_repair(q), f"误判了：{q}"     # 误判 = 凭空建垃圾单 ✗
 
 
-def test_ask_back_then_fill(monkeypatch):
-    """① 缺房间 → 先问、不建单 ② 补房间 → 建单、回答带工单号 ✓"""
+def test_ask_back_feature_is_gone(monkeypatch):
+    """2026-10-19：补槽位整条已停用（报修改成固定话术，不再追问房间号）"""
     monkeypatch.setattr(brain, "make_tts", lambda text: "")   # 不碰 TTS 网络 ✓
     memory._memory["facts"] = []                              # 确保记忆里没有房间 ✓
     brain._pending.update(kind="", note="", ts=0.0)
 
-    # ① 报修但没房间号 → 必须【先问】✓ 且【不建单】✓
-    r1 = brain.handle_query("我们宿舍的灯坏了")
-    assert "哪个房间" in r1["voice_text"], r1["voice_text"]
-    assert r1["device_action"] == "NONE"           # 还没办事，别亮绿灯 ✗
-    assert brain._pending["kind"] == "repair"      # 记住了"待补房间" ✓
-
-    # ② 用户补上房间号 → 建单 ✓ 回答里带房间与单号 ✓
-    r2 = brain.handle_query("3 栋 502")
-    assert "3 栋 502" in r2["voice_text"], r2["voice_text"]
-    assert ("工单号" in r2["voice_text"]) or ("报修单" in r2["voice_text"]), r2["voice_text"]
-    assert brain._pending["kind"] == ""            # 状态已清 ✓ 不会重复建单 ✓
+    r = brain.handle_query("我们宿舍的灯坏了")
+    assert "哪个房间" not in r["voice_text"], r["voice_text"]
+    assert "知行理工" in r["voice_text"], r["voice_text"]
+    assert brain._pending["kind"] == "", "不该再记录待补房间"
 
 
 def test_pending_expires(monkeypatch):

@@ -28,37 +28,46 @@ def _setup(monkeypatch, facts=None, reply=None, action="NONE"):
     tickets.clear_all()
 
 
-# ══════════════════ 报修 → 绿灯 + 真建单 ══════════════════
-def test_repair_creates_ticket_and_turns_green(monkeypatch):
-    """⭐ 报修必须【真的建单】+ 动作 = LED_GREEN_ON（这是接线 ✓ 不是零件 ✓）"""
-    _setup(monkeypatch, facts=["用户住 3 栋 502"], reply="好的，帮你登记报修了。")
+# ══════════════════ 报修 / 请假 → 固定话术（2026-10-19 改）══════════════════
+def test_repair_points_to_zhixingli(monkeypatch):
+    """2026-10-19 改：报修不再建工单，改说固定话术（指路知行理工）"""
+    _setup(monkeypatch, facts=["用户住 3 栋 502"], reply="好的。")
     r = brain.handle_query("我们宿舍的灯坏了，要报修")
     assert r["device_action"] == "LED_GREEN_ON", f"实际动作 {r['device_action']}"
-    t = tickets.newest()
-    assert t is not None, "必须真的建了一张工单 ✗"
-    assert t["room"] == "3 栋 502"
-    assert t["category"] == "照明"
-    assert t["id"] in r["voice_text"], "回答里必须带真实工单号 ✓"
+    vt = r["voice_text"]
+    assert "知行理工" in vt and "后勤报修" in vt, vt
+    assert "工单号" not in vt, f"不该再出现工单号：{vt}"
+    assert tickets.newest() is None, "不该再建工单"
+    assert r["source"] == "本地固定话术"
 
 
-def test_repair_without_room_asks_and_creates_nothing(monkeypatch):
-    """⭐ 没有房间号 → 先追问 ✓ 动作 NONE ✓ **不许建单** ✗"""
+def test_repair_never_asks_for_room(monkeypatch):
+    """报修不再反问房间号（2026-10-19 用户要求）"""
     _setup(monkeypatch, facts=[], reply="好的。")
     r = brain.handle_query("我们宿舍的灯坏了，要报修")
-    assert r["device_action"] == "NONE"
-    assert "哪个房间" in r["voice_text"]
-    assert tickets.newest() is None, "缺房间号时不该建单 ✗"
+    assert "哪个房间" not in r["voice_text"], "不该再反问房间号"
+    assert "知行理工" in r["voice_text"]
+    assert brain._pending["kind"] == "", "不该再记「待补房间」"
 
 
-def test_ask_back_then_room_fills_ticket(monkeypatch):
-    """⭐ 追问之后给了房号 → 补上并建单 ✓ 动作 = 绿灯 ✓"""
+def test_leave_points_to_zhixingli(monkeypatch):
+    """请假：固定话术（知行理工 + 本科生请假 + 提醒班导师）"""
     _setup(monkeypatch, facts=[], reply="好的。")
+    r = brain.handle_query("我想请假")
+    vt = r["voice_text"]
+    assert "知行理工" in vt and "本科生请假" in vt, vt
+    assert "班导师" in vt, vt
+    assert r["device_action"] == "LED_GREEN_ON"
+    assert r["source"] == "本地固定话术"
+
+
+def test_second_turn_after_repair_goes_to_platform(monkeypatch):
+    """补槽位已停用 —— 第二句「3 栋 502」走正常问答"""
+    _setup(monkeypatch, facts=[], reply="你好呀。")
     brain.handle_query("我们宿舍的灯坏了，要报修")
     r = brain.handle_query("3 栋 502")
-    assert r["device_action"] == "LED_GREEN_ON"
-    t = tickets.newest()
-    assert t is not None and t["room"] == "3 栋 502"
-    assert t["id"] in r["voice_text"]
+    assert r["source"] != "本地补槽位", "不该再走补槽位"
+    assert "知行理工" not in r["voice_text"], "第二句不该再是报修话术"
 
 
 # ══════════════════ 其它意图的动作 ══════════════════

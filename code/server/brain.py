@@ -320,6 +320,22 @@ def _is_weak(reply) -> bool:
 
 
 # ================= 意图 + 合成（文字入口和语音入口共用） =================
+
+# ═══════════════════════════════════════════════════════════
+# 固定话术（2026-10-19 ✓ 用户要求：报修与请假不走平台，直接说这一句）
+#   ⚠️ 改这句话只改这里 ✓ 别去提示词里找 ✗ 那边管不到这两条
+#   ⚠️ 这两句会被 TTS 念出来 ✓ 所以要口语化 ✓ 不要括号和符号 ✓
+# ═══════════════════════════════════════════════════════════
+FIXED_REPAIR = (
+    "报修的话，手机上打开知行理工，搜索后勤报修，把报修信息填进去就可以啦。"
+)
+FIXED_LEAVE = (
+    "请假也是手机上打开知行理工，搜索本科生请假，点右下角的加号，"
+    "按要求填好提交。提交完记得及时联系班导师哦。"
+)
+_LEAVE_WORDS = ("请假", "请个假", "请一天假", "请几天假", "病假", "事假")
+
+
 def handle_query(query):
     """返回 dict：voice_text / device_action / audio_url /
     source / memory / history。"""
@@ -342,40 +358,23 @@ def handle_query(query):
                      f"「{tickets.status_text(t['status'])}」。")
             return _finish(query, reply, tickets.action_for(t["status"]), "本地台账")
 
-    # 2.5) ⭐ 补槽位：上一句在报修、但没房间号 → 我们追问了一句 ✓
-    #      这一句如果给了房间号，就补上并**建单** ✓✓（必须排在进度/报修判断之前 ✓）
-    if _pending["kind"] == "repair" and (time.time() - _pending["ts"]) < _PENDING_TTL:
-        room = _room_in(query)
-        if room:
-            with trace.timed("建单"):
-                t = tickets.create(room=room,
-                                   category=tickets.guess_category(_pending["note"]),
-                                   note=_pending["note"] + " ｜ " + query)
-            _pending.update(kind="", note="", ts=0.0)
-            print(f"[工单] 补上房间号后建单 {t['id']} 房间={room}", flush=True)
-            return _finish(
-                query,
-                f"好的，{room} 的报修已经登记好啦，工单号 {t['id']}，师傅会尽快联系你。",
-                "LED_GREEN_ON", "本地补槽位")
+    # 2.5) ⚠️ 2026-10-19：原来这里"补槽位建单" ✗ 已停用 ✓
+    #      用户要求报修改说固定的话 ✓ 不建单 ✓ 也不追问房间号 ✗
+    #      → 保留这段注释是为了让人知道这里**曾经有过**这一支 ✓ 别再以为漏了 ✓
 
     # 3) 报修 → **真的建一张工单**（工程债 C1：把"假装办事"换成"真产出"）
     #    注意：这一支**不提前返回** —— 答案措辞仍交给平台（它说得更自然），
     #    我们只负责"真建单"，最后把**真实工单号**补进回答 ✓
-    repair_ticket = None
+    # 3) 报修 → **固定话术，指路到知行理工**（2026-10-19 用户要求 ✗ 不再建工单）
+    #    ⚠️ 这里**提前返回** ✓ 不走平台 ✓ → 也就 0 秒延迟 ✓（平台要 5~8 秒 ✗）
     if _is_repair(query):
-        room = _guess_room()
-        if not room:
-            # ⭐ 缺房间号 → **先问，不建单** ✓（否则就是一张没地址的废单 ✗）
-            _pending.update(kind="repair", note=query, ts=time.time())
-            print(f"[追问] 报修但没房间号，先问一句：{query}", flush=True)
-            return _finish(query, "好的，请问是哪个房间？比如「3 栋 502」。",
-                           "NONE", "本地追问")
-        with trace.timed("建单"):
-            repair_ticket = tickets.create(room=room,
-                                           category=tickets.guess_category(query),
-                                           note=query)
-        print(f"[工单] 新建 {repair_ticket['id']} 房间={repair_ticket['room'] or '未登记'} "
-              f"类别={repair_ticket['category']}", flush=True)
+        print("[固定话术] 报修 → 指路知行理工", flush=True)
+        return _finish(query, FIXED_REPAIR, "LED_GREEN_ON", "本地固定话术")
+
+    # 3.5) 请假 → **固定话术**（2026-10-19 新增 ✓ 同样提前返回 ✓）
+    if any(w in query for w in _LEAVE_WORDS):
+        print("[固定话术] 请假 → 指路知行理工", flush=True)
+        return _finish(query, FIXED_LEAVE, "LED_GREEN_ON", "本地固定话术")
 
     # 4) 放歌类请求单独走音乐分支：云端给不了音频
     if MUSIC_ENABLE:
@@ -438,11 +437,8 @@ def handle_query(query):
                 reply, action = local_reply(query)
             source = "本地回退"
 
-    # 6) 这一轮如果是报修，把**真实工单号**补进回答，并把动作钉成"受理"= 绿灯
-    if repair_ticket:
-        reply = (f"{reply}（工单号 {repair_ticket['id']}，{repair_ticket['category']}，"
-                 f"{tickets.status_text(repair_ticket['status'])}）")
-        action = "LED_GREEN_ON"
-        source = f"{source}·建单"
+    # 6) ⚠️ 2026-10-19：原来这里"把真实工单号补进回答"✗ 已删 ✓
+    #    报修现在走固定话术并提前返回 ✓ 走不到这里 ✓
+    #    保留注释是让人知道这里**曾经有过**这一支 ✓
 
     return _finish(query, reply, action, source)
