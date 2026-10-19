@@ -130,3 +130,41 @@ def test_action_guard_gives_fallback_action(monkeypatch):
     # 平台动作非 NONE 时不该被覆盖 ✓
     reply2, action2, override2 = brain._action_guard("帮我订个会议室", "已经帮你预约了。", "LED_GREEN_ON")
     assert action2 == "LED_GREEN_ON", "平台给了动作就不该覆盖 ✗"
+
+
+# ═══════════════════════════════════════════════════════════
+# 工单回执下载（工程债 C1 最后一块 ✓）
+# ═══════════════════════════════════════════════════════════
+def _flask_client():
+    """⭐ conftest 里没有 client fixture ✓ → 自己建一个 Flask 测试客户端 ✓
+    （不影响真实服务端 ✓ 只在内存里跑 ✓）"""
+    from server.app import app
+    app.config["TESTING"] = True
+    return app.test_client()
+
+
+def test_receipt_download():
+    """⭐ 回执真的能下载 ✓ 而且是附件 ✓（不是显示在页面里 ✗）"""
+    from server import tickets
+    known = tickets.newest()
+    if not known:
+        import pytest
+        pytest.skip("库里还没有工单 ✓ 先跑一次报修再测 ✓")
+    tid = known["id"]
+    r = _flask_client().get(f"/v1/tickets/{tid}/receipt.txt")
+    assert r.status_code == 200, r.status_code
+    cd = r.headers.get("Content-Disposition", "")
+    assert "attachment" in cd, f"必须让浏览器下载而不是显示 ✗ 实际 {cd!r}"
+    assert tid in cd, f"文件名里要带单号 ✓ 实际 {cd!r}"
+    body = r.data.decode("utf-8-sig")
+    assert tid in body, "回执正文里必须有单号 ✓"
+    assert "智小理" in body and "报修回执" in body
+    # 状态要翻译成中文 ✓（不是裸 new ✗）
+    assert "new" not in body or "已受理" in body
+
+
+def test_receipt_missing_ticket_is_404_text():
+    """找不到单号 → 404 + 人话，而不是 500 ✗"""
+    r = _flask_client().get("/v1/tickets/BX_NOT_EXIST/receipt.txt")
+    assert r.status_code == 404
+    assert "没有这张工单" in r.data.decode("utf-8")

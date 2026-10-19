@@ -15,7 +15,7 @@ import os
 import time
 import traceback
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 
 from . import brain, device, memory, tickets, trace
 
@@ -394,6 +394,47 @@ def ticket_one(tid):
                         "valid_status": list(tickets.VALID_STATUS)}), 200
     t = tickets.get(tid)
     return jsonify(t or {"ok": False, "error": "没有这张工单"}), 200
+
+
+@app.route("/v1/tickets/<tid>/receipt.txt")
+def ticket_receipt(tid):
+    """下载一张工单的文本回执（工程债 C1 的最后一块 ✓）。
+
+    ⚠️ 故意【免 token】✓ —— 和 /v1/tickets 保持一致 ✓
+       网页只要 <a href="…/receipt.txt" download> 就能下 ✓ 不用 JS ✗
+    ⚠️ 必须带 filename ✗ 否则浏览器会在页面里显示而不是下载 ✓
+    """
+    t = tickets.get(tid)
+    if not t:
+        return Response("没有这张工单：" + tid + "\n",
+                        mimetype="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": "inline"}), 404
+    _st = tickets.status_text(t.get("status") or "")
+    lines = [
+        "智小理 · 宿舍事务助手 · 报修回执",
+        "=" * 40,
+        "",
+        "工单号：" + (t.get("id") or ""),
+        "房　间：" + (t.get("room") or "（未填）"),
+        "类　别：" + (t.get("category") or "（未分类）"),
+        "状　态：" + _st,
+        "受理时间：" + (t.get("ts") or ""),
+        "最后更新：" + (t.get("updated") or ""),
+        "",
+        "事　由：" + (t.get("note") or "（无）"),
+        "",
+        "=" * 40,
+        "本回执由「智小理 · 宿舍事务助手」生成",
+        "生成时间：" + time.strftime("%Y-%m-%d %H:%M:%S"),
+        "",
+        "提示：想查进度，再问一句「我的报修怎么样了」就行。",
+        "",
+    ]
+    body = "\ufeff" + "\r\n".join(lines)      # ⭐ BOM + CRLF：Windows 记事本友好 ✓
+    return Response(body, mimetype="text/plain; charset=utf-8", headers={
+        "Content-Disposition": 'attachment; filename="receipt_' + tid + '.txt"',
+        "Cache-Control": "no-store",
+    })
 
 
 @app.route("/v1/tickets/clear", methods=["POST"])
