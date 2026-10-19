@@ -48,7 +48,7 @@
 | 7 | **问答** | 服务端 → 智小理平台 | 带上下文的单轮请求（不交 `conversation_id` ✓）| **`平台`** |
 | 8 | **合成** | 服务端 → 百度 | 文本转 WAV（超 60 字自动分段拼接）| **`TTS`** |
 | 9 | 回传 | 服务端 → 板子 | JSON：`voice_text`/`device_action`/`audio_url`/`request_id`/`timings` | — |
-| 10 | 播放 | 板子 → 服务端 → 功放 | `GET /audio/output.wav`（流式）| — |
+| 10 | 播放 | 板子 → 服务端 → 功放 | `GET /audio/<文件名>`（流式 ✓ 文件名每次不同 ✓）| — |
 
 **串起来看**（排障就靠它 ✓）：
 
@@ -106,26 +106,29 @@ E:\Python\python.exe tools\链路日志.py --slow     # 找最慢的
 
 ---
 
-## 五、接口地图（16 条路由，对着代码核过 ✓）
+## 五、接口地图（**19 条路由**，对着 `@app.route` 数过 ✓）
 
 | 路由 | 方法 | 谁在调 | 说明 |
 |---|---|---|---|
-| `/v1/voice` | POST | **板子** | 上传录音 → 识别 → 问答 → 合成，一次往返 ✓ |
+| `/` | GET | 网页 | 体验入口（和队友那份共用同一套后端 ✓）|
 | `/v1/chat` | POST | 板子 / 网页 / 测试 | 文字问答（含全部链路字段 ✓）|
+| `/v1/voice` | POST | **板子** | 上传录音 → 识别 → 问答 → 合成，一次往返 ✓ |
 | `/v1/asr` | POST | 排查用 | **只识别**不回答（单测麦克风 ✓）|
 | `/v1/music` | POST | 板子 | 直接走放歌分支（调试用 ✓）|
-| `/audio/<file>` | GET | **板子** | 下载音频（支持 Range 断点 ✓）|
+| `/v1/reset` | POST | 运维 | 重开一段会话、解除平台降级状态 ✓ |
+| `/v1/health` | GET | 网页 / 部署自检 | 自检 + **版本号**（判断"跑的是哪一版" ✓）|
+| `/v1/board` | GET | 网页 | 板子在线 / 音量 / 步数 ✓（**免 token** ✓）|
+| `/v1/board/volume` | POST | 网页 | 写板子音量（夹在 10~21 ✓ 防调哑 ✗）|
+| `/v1/device/status` | GET | 网页 | 板子在线？（**代理** ✓）|
+| `/v1/device/volume` | GET/POST | 网页 | 读/写板子音量（**代理** ✓）|
+| `/v1/device/profile` | POST | 网页 | 把个人信息转给板子 ✓ |
 | `/v1/memory` | GET/POST | 网页 / 排查 | 看记忆 / 手动加一条 ✓ |
 | `/v1/memory/clear` | POST | 网页 | 清空已知信息（隐私承诺 ✓）|
 | `/v1/tickets` | GET/POST | 网页 / 答辩 | 台账列表 / 手动建单 ✓ |
 | `/v1/tickets/<id>` | GET/POST | 网页 | 看单 / 改状态（`new`/`doing`/`done`/`rejected` ✓）|
+| `/v1/tickets/<id>/receipt.txt` | GET | 网页 | **下载报修回执**（10-19 加 ✓ 免 token ✓ 带 attachment 头 ✓）|
 | `/v1/tickets/clear` | POST | 网页 | 清空台账（隐私承诺 ✓）|
-| `/v1/device/status` | GET | 网页 | 板子在线？（**代理** ✓）|
-| `/v1/device/volume` | GET/POST | 网页 | 读/写板子音量 ✓ |
-| `/v1/device/profile` | POST | 网页 | 把个人信息转给板子 ✓ |
-| `/v1/health` | GET | 网页 / 部署自检 | 自检 + **版本号**（判断"跑的是哪一版" ✓）|
-| `/v1/reset` | POST | 运维 | 重开一段会话、解除平台降级状态 ✓ |
-| `/static/<file>` | GET | — | Flask 静态目录（备用 ✓）|
+| `/audio/<file>` | GET | **板子** | 下载音频（支持 Range 断点 ✓；文件名每次不同 ✓）|
 
 > 🔐 需要 `Authorization: Bearer <token>` 的只有：`/v1/device/*` 与 `/v1/memory*` ✓
 
@@ -138,7 +141,7 @@ E:\Python\python.exe tools\链路日志.py --slow     # 找最慢的
 | `code\记忆.db` | SQLite：`facts(id, ts, text UNIQUE)` / `events(id, ts, user, reply)` | 长期已知信息（≤20 条）+ 历史事件（≤200 条）| `POST /v1/memory/clear` ✓ |
 | `code\工单.db` | `tickets(id, ts, updated, room, category, status, note)` | 报修台账（SQLite + WAL ✓）| `POST /v1/tickets/clear` ✓ |
 | `语音\链路日志.jsonl` | 每行一个 JSON：`ts/rid/event/...` | 每次请求的链路与耗时（2MB×3 滚动 ✓）| 直接删 ✓ |
-| `语音\output.wav` | WAV | 最近一次播报 ✓ | 直接删 ✓ |
+| `语音\output_*.wav` | WAV | 最近几十次播报 ✓（自动只留最近 30 个 ✓）| 直接删 ✓ |
 | `语音\mic_last.wav` | WAV | 板子最近一次录音（排查接线 ✓）| 直接删 ✓ |
 | `语音\music\*.m4a` | m4a | 放歌试听缓存 ✓ | 直接删（会重下 ✓）|
 | `语音\access.log` | 文本行 | 每个请求一行（**含来访 IP** ⚠️）| 直接删 ✓ |
