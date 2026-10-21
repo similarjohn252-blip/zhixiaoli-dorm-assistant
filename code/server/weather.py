@@ -47,12 +47,26 @@ def fetch(extensions="all"):
             print(f"[天气] 高德返回 status={j.get('status')} "
                   f"info={j.get('info')} infocode={j.get('infocode')}", flush=True)
             return None
-        casts = j.get("casts") or []
+        # ⚠️ 2026-10-21 实测：extensions=all 时 casts 嵌在 forecasts[0] 里，
+        #    不在顶层。原来按顶层读，永远拿到空。base 时才有顶层 lives。
+        fc = (j.get("forecasts") or [{}])[0]
+        casts = fc.get("casts") or []
         if not casts:
-            print("[天气] 高德没给 casts", flush=True)
+            live = (j.get("lives") or [{}])[0]
+            if live:
+                print("[天气] 只有实况没有预报，按实况拼一句", flush=True)
+                return {"casts": [{
+                    "date": str(live.get("reporttime", ""))[:10],
+                    "dayweather": live.get("weather", ""),
+                    "nightweather": live.get("weather", ""),
+                    "daytemp": live.get("temperature", ""),
+                    "nighttemp": live.get("temperature", ""),
+                    "daywind": live.get("winddirection", ""),
+                    "daypower": live.get("windpower", ""),
+                }], "city": live.get("city") or ""}
+            print(f"[天气] 高德没给 casts，原文字段 {list(j.keys())}", flush=True)
             return None
-        return {"casts": casts, "city": (j.get("lives") or [{}])[0].get("city")
-                or casts[0].get("city") or ""}
+        return {"casts": casts, "city": fc.get("city") or ""}
     except Exception as e:
         print(f"[天气] 高德调用失败: {type(e).__name__}: {e}", flush=True)
         return None
