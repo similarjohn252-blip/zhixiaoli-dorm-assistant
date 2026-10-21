@@ -15,7 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
-from . import trace
+from . import trace, weather
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -343,6 +343,11 @@ FIXED_STUDY = (
 _LEAVE_WORDS = ("请假", "请个假", "请一天假", "请几天假", "病假", "事假")
 _STUDY_WORDS = ("自习", "空教室", "查教室")   # 只放"自习"相关 ✓ 图书馆是另一类问题 ✓
 
+_WEATHER_WORDS = ("天气", "气温", "下雨", "下雪", "几度", "温度", "冷不冷", "热不热")
+# 只查重庆 ✓ 点名别的地方就直接说查不到，绝不拿重庆的糊弄 ✗
+_OTHER_CITIES = ("北京", "上海", "广州", "深圳", "成都", "武汉", "西安", "杭州",
+                 "南京", "天津", "苏州", "长沙", "郑州", "济南", "昆明", "贵阳")
+
 
 def handle_query(query):
     """返回 dict：voice_text / device_action / audio_url /
@@ -387,6 +392,18 @@ def handle_query(query):
     if any(w in query for w in _STUDY_WORDS):
         print("[固定话术] 自习室 → 指路教务管理系统", flush=True)
         return _finish(query, FIXED_STUDY, "LED_GREEN_ON", "本地固定话术")
+
+    # 3.8) 天气 → 直接问高德（2026-10-21 ✓ 不绕平台 ✓ 快 ✓ 能查未来三天 ✓）
+    if any(w in query for w in _WEATHER_WORDS):
+        if any(c in query for c in _OTHER_CITIES):
+            print("[天气] 问的是别的城市 → 只查重庆", flush=True)
+            return _finish(query, "我只查得到重庆的天气哦。", "NONE", "本地天气·高德")
+        with trace.timed("天气"):
+            text = weather.answer(query)
+        if text:
+            print(f"[天气] 高德: {text}", flush=True)
+            return _finish(query, text, "NONE", "本地天气·高德")
+        print("[天气] 高德没取到，交给后面的兜底", flush=True)
 
     # 4) 放歌类请求单独走音乐分支：云端给不了音频
     if MUSIC_ENABLE:

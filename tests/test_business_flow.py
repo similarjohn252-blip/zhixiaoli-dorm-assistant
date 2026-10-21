@@ -195,3 +195,39 @@ def test_study_room_points_to_jwxt(monkeypatch):
     assert "知行理工" in vt and "空教室" in vt, vt
     assert r["source"] == "本地固定话术"
     assert r["device_action"] == "LED_GREEN_ON"
+
+
+# ══════════════════ 天气 → 服务端直连高德（2026-10-21）══════════════════
+def _fake_gaode(ext="all"):
+    return {"city": "重庆", "casts": [
+        {"date": "2026-10-21", "dayweather": "多云", "nightweather": "晴",
+         "daytemp": "26", "nighttemp": "18", "daywind": "东南", "daypower": "1-3"},
+        {"date": "2026-10-22", "dayweather": "小雨", "nightweather": "阴",
+         "daytemp": "22", "nighttemp": "16", "daywind": "北", "daypower": "1-3"},
+        {"date": "2026-10-23", "dayweather": "阴", "nightweather": "阴",
+         "daytemp": "21", "nighttemp": "15", "daywind": "北", "daypower": "1-3"},
+    ]}
+
+
+def test_weather_uses_gaode(monkeypatch):
+    """天气走服务端直连高德 —— 不绕平台，而且顺带给明天"""
+    from server import weather
+    monkeypatch.setattr(weather, "fetch", _fake_gaode)
+    _setup(monkeypatch, facts=[], reply="不该走平台")
+    r = brain.handle_query("重庆天气怎么样")
+    vt = r["voice_text"]
+    assert "多云" in vt, vt
+    assert "18" in vt and "26" in vt, vt          # 温度
+    assert "小雨" in vt, vt                        # 顺带给明天（用户抱怨的就是只查当天）
+    assert r["source"] == "本地天气·高德"
+
+
+def test_weather_other_city_is_refused(monkeypatch):
+    """问别的城市 → 必须说只查得到重庆，绝不能拿重庆的天气糊弄"""
+    from server import weather
+    monkeypatch.setattr(weather, "fetch", _fake_gaode)
+    _setup(monkeypatch, facts=[], reply="不该走平台")
+    r = brain.handle_query("北京天气怎么样")
+    vt = r["voice_text"]
+    assert "只查得到重庆" in vt, vt
+    assert "多云" not in vt, vt
