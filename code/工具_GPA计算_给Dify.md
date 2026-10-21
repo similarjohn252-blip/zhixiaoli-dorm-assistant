@@ -61,25 +61,25 @@ def main(current_gpa, completed_credits, remaining_credits, target_gpa):
         tgt = 0.0
 
     # 参数不合法 → 返回提示，不抛异常
-    if left <= 0 or done <= 0 or cur < 0 or cur > 4 or tgt < 0 or tgt > 4:
+    if left <= 0 or done <= 0 or cur < 0 or cur > 5 or tgt < 0 or tgt > 5:
         return {
             "required_future_gpa": 0.0,
             "max_possible_gpa": 0.0,
             "achievable": False,
-            "message": "参数不对：绩点在 0~4 之间，已修和剩余学分都要大于 0",
+            "message": "参数不对：绩点在 0~5 之间，已修和剩余学分都要大于 0",
         }
 
     total = done + left
     required = (tgt * total - cur * done) / left
-    max_possible = (cur * done + 4.0 * left) / total
-    achievable = required <= 4.0
+    max_possible = (cur * done + 5.0 * left) / total
+    achievable = required <= 5.0
 
     if required <= 0:
         msg = "即使未来课程绩点为 0，也能达到目标"
     elif achievable:
         msg = "理论上可以达到：未来课程平均需要 " + str(round(required, 2)) + " 分"
     else:
-        msg = ("达不到：未来课程全拿 4.0 也最多到 "
+        msg = ("达不到：未来课程全拿 5.0 也最多到 "
                + str(round(max_possible, 2)) + " 分")
 
     return {
@@ -113,7 +113,7 @@ def main(current_gpa, completed_credits, remaining_credits, target_gpa):
 
 - 总学分 120
 - 需要未来平均 = (3.5 × 120 − 3.2 × 80) / 40 = (420 − 256) / 40 = **4.1**
-- 未来全拿 4.0 时最高能到 = (3.2 × 80 + 4.0 × 40) / 120 = (256 + 160) / 120 = **3.467**
+- 未来全拿 5.0 时最高能到 = (3.2 × 80 + 4.0 × 40) / 120 = (256 + 160) / 120 = **3.467**
 - 结论：**达不到**（需要 4.1，超过 4.0 上限；最高只能到 3.467）
 
 如果算出来是这个结果，说明逻辑对。
