@@ -11,15 +11,22 @@
 
 ```python
 def main(current_gpa, completed_credits, remaining_credits, target_gpa):
-    return {"required_future_gpa": 1.0, "max_possible_gpa": 2.0,
-            "achievable": True, "message": "沙箱正常"}
+    return {"result": "ok"}
 ```
 
-**如果这三行也报段错误** → 不是你的代码问题，是平台的代码沙箱坏了
-（可能是 Python 环境损坏，或这个节点残留了坏状态）。
-处理：删掉这个代码节点、重新加一个新的代码节点再试；还不行就换用别的节点类型实现。
+⚠️ **注意这里返回的是 `result`** —— 因为你这个代码节点的输出变量**现在就叫 result**。
+隔离测试必须匹配当前的输出变量名，否则测不出任何东西，只会一直报"missing output parameter"。
 
-**如果这三行正常** → 说明沙箱是好的，问题在原代码里，继续下面第 2 段。
+**判断方法**：
+
+- 如果它报的**还是** `missing output parameter: result` → 说明输出变量名也不是 result（或者你改过），
+  打开代码节点的【输出变量】面板，把里面列的名字抄下来，让 `return` 的键和它一模一样。
+- 如果它报**段错误** → 是平台的代码沙箱坏了。处理：删掉这个代码节点、重新加一个新的再试。
+- 如果它**跑通了** → 沙箱是好的。问题在别处：要么输出键名对不上，要么原代码里有
+  `raise` / 类型注解，继续看第 2 段。
+
+⭐ 顺便记住这件事：**报"missing output parameter: X" 时，去看输出变量面板里是不是有个 X**。
+Dify 是按你声明的输出变量去取值，代码里没返回那个键，它就报这个错。
 
 ---
 
