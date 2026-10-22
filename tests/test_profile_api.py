@@ -74,7 +74,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(memory, "MEMORY_DB", str(tmp_path / "t2.db"))
     monkeypatch.setattr(memory, "MEMORY_FILE", str(tmp_path / "t2.json"))
     monkeypatch.setattr(memory, "_memory", {"facts": [], "events": []})
-    monkeypatch.setattr(app_mod, "_PROFILE_KEY", "test123")
+    # 2026-10-22 方案一：口令改成用户自己设，校验走 profile_key 模块
+    monkeypatch.setattr(app_mod.profile_key, "check", lambda k: k == "test123")
+    monkeypatch.setattr(app_mod.profile_key, "is_set", lambda: True)
+    monkeypatch.setattr(app_mod.profile_key, "MEMORY_DB", str(tmp_path / "k.db"))
     app_mod.app.config["TESTING"] = True
     with app_mod.app.test_client() as c:
         yield c

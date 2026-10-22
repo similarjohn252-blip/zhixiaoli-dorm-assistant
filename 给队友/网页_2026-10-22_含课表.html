@@ -352,18 +352,39 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
   <section class="card" id="profile">
     <h2><span class="idx">6</span>用户档案 <span class="badge" id="pfBadge">未解锁</span></h2>
 
-    <div class="block">
+    <!-- 还没设口令、而且是在服务端这台电脑上打开 → 显示设置表单 -->
+    <div class="block" id="pfSetupBox" style="display:none">
+      <div class="block-t">① 设一个档案口令</div>
+      <div class="row">
+        <input type="password" id="pfSet1" placeholder="设 4~8 位数字或字母" style="flex:1 1 180px">
+        <input type="password" id="pfSet2" placeholder="再输一遍" style="flex:1 1 180px">
+        <button id="pfDoSet">设好了</button>
+      </div>
+      <div class="hint">档案里有学号、手机号这类东西，所以要设一道门。
+        这个口令是你自己设的，设完一直有效（重启也不变）。只有在这台电脑上才能设或重置 ——
+        免得同一个 WiFi 下别人先打开网页就替你设了。</div>
+      <div class="msg muted" id="pfSetMsg"></div>
+    </div>
+
+    <div class="block" id="pfUnlockBox" style="display:none">
       <div class="block-t">① 解锁</div>
       <div class="row">
-        <input type="password" id="pfKey" placeholder="档案口令（看服务端启动横幅）"
-               style="flex:1 1 220px">
+        <input type="password" id="pfKey" placeholder="档案口令" style="flex:1 1 220px">
         <button class="ghost sm" id="pfUnlock">解锁</button>
         <button class="ghost sm" id="pfLock">锁定</button>
+        <button class="ghost sm" id="pfResetKey" style="display:none">重置口令</button>
       </div>
-      <div class="hint">档案里有学号、手机号这类东西，所以这道门要口令。
-        口令在服务端启动横幅里（或 .env 的 ZHIXIAOLI_PROFILE_KEY）。
-        只存在这个标签页里，关掉就没了。</div>
+      <div class="hint">口令是你自己设的。忘了就在服务端那台电脑上用
+        <b>http://127.0.0.1:5000/</b> 打开这个页面，点「重置口令」（不需要旧口令）。
+        口令只存在这个标签页里，关掉就没了。</div>
       <div class="msg muted" id="pfMsg"></div>
+    </div>
+
+    <div class="block" id="pfRemoteBox" style="display:none">
+      <div class="block-t">① 还没设口令</div>
+      <div class="hint">这台设备上没有档案口令，而且<b>只能在服务端那台电脑上设置</b> ——
+        不然同一个 WiFi 下别人先打开网页就替你设了。请到服务端电脑上，用
+        <b>http://127.0.0.1:5000/</b> 打开这个页面设置一次。</div>
     </div>
 
     <div class="block">
@@ -1557,6 +1578,67 @@ async function pfClear(){
   } catch (e){ el("pfClearMsg").textContent = "清空失败：" + e.message; }
 }
 
+// 启动时先问状态：设过口令没有、能不能在这台设备上设
+let pfCanSetupHere = false;
+async function pfInit(){
+  pfSetBadge();
+  try {
+    const j = await call(api("/v1/profile/state"));
+    pfCanSetupHere = !!j.can_setup_here;
+    el("pfSetupBox").style.display   = (!j.key_set && pfCanSetupHere) ? "" : "none";
+    el("pfUnlockBox").style.display  = (j.key_set || (pfGetKey() && j.key_set)) ? "" : "none";
+    el("pfRemoteBox").style.display  = (!j.key_set && !pfCanSetupHere) ? "" : "none";
+    if (j.key_set){
+      el("pfUnlockBox").style.display = "";
+      el("pfResetKey").style.display = pfCanSetupHere ? "" : "none";
+    } else if (pfCanSetupHere){
+      return;                       // 先让他设，别显示解锁框
+    } else {
+      return;
+    }
+  } catch (e){
+    pfMsg("读状态失败：" + e.message, "bad");
+    el("pfUnlockBox").style.display = "";
+  }
+  if (pfUnlocked()) pfLoad();
+}
+
+async function pfDoSet(){
+  const a = (el("pfSet1").value || "").trim();
+  const b = (el("pfSet2").value || "").trim();
+  const m = el("pfSetMsg");
+  if (a !== b){ m.textContent = "两次输的不一样"; m.className = "msg warn"; return; }
+  try {
+    const j = await call(api("/v1/profile/key"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: a })
+    });
+    if (j.ok === false){ m.textContent = j.error || "没设成"; m.className = "msg bad"; return; }
+    m.textContent = "设好了，正在解锁…"; m.className = "msg ok";
+    pfSetKey(a);
+    setTimeout(function(){ pfInit(); }, 300);
+  } catch (e){ m.textContent = "设失败：" + e.message; m.className = "msg bad"; }
+}
+
+async function pfResetKey(){
+  if (!confirm("重置口令？重置后要重新设一个，档案内容不会丢。")) return;
+  try {
+    const j = await call(api("/v1/profile/key"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset" })
+    });
+    if (j.ok === false){ pfMsg(j.error || "没重置成", "bad"); return; }
+    pfSetKey("");
+    el("pfSet1").value = ""; el("pfSet2").value = "";
+    el("pfSetMsg").textContent = "已重置，请设一个新的";
+    el("pfSetMsg").className = "msg ok";
+    pfInit();
+  } catch (e){ pfMsg("重置失败：" + e.message, "bad"); }
+}
+
+el("pfDoSet").addEventListener("click", pfDoSet);
+el("pfSet2").addEventListener("keydown", function(ev){ if (ev.key === "Enter") pfDoSet(); });
+el("pfResetKey").addEventListener("click", pfResetKey);
 el("pfUnlock").addEventListener("click", function(){
   const k = (el("pfKey").value || "").trim();
   if (!k){ pfMsg("先把口令填上", "warn"); return; }
@@ -1572,8 +1654,7 @@ el("pfLock").addEventListener("click", function(){
 el("pfAdd").addEventListener("click", pfAdd);
 el("pfNew").addEventListener("keydown", function(ev){ if (ev.key === "Enter") pfAdd(); });
 el("pfClear").addEventListener("click", pfClear);
-pfSetBadge();
-if (pfUnlocked()) pfLoad();
+pfInit();
 
 // 启动
 refreshAll();

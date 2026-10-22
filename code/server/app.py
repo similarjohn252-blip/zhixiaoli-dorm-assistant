@@ -12,21 +12,21 @@
   GET      /v1/health           健康自检 + 版本号（演示前一条命令看能不能上台）
 """
 import os
-import secrets
 import tempfile
 import time
 import traceback
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 
-from . import brain, device, memory, remind_audio, reminders, tickets, timetable, trace
+from . import (brain, device, memory, profile_key, remind_audio, reminders,
+               tickets, timetable, trace)
 
 from .brain import handle_query
 
 from .config import (
     ACCESS_LOG, API_TOKEN, AUDIO_DIR, BOARD_HOST, CODE_VERSION, MEMORY_DB,
     MEMORY_FILE,
-    MIC_LAST_WAV, MEMORY_MAX_FACTS, PROFILE_KEY, STARTED_AT,
+    MIC_LAST_WAV, MEMORY_MAX_FACTS, STARTED_AT,
 )
 from .music import (
     handle_music, music_request,
@@ -44,15 +44,13 @@ except Exception:
 app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无害 ✓）
 
 
-# ================= 用户档案的网页口令（2026-10-22）=================
-# .env 里 ZHIXIAOLI_PROFILE_KEY 设了就用它；没设就每次启动随机生成并打印
-# ⚠️ 随机生成意味着**重启就换** —— 故意这样：不设就没法长期泄露 ✓
-_PROFILE_KEY = PROFILE_KEY or "".join(secrets.choice("0123456789") for _ in range(6))
-if not PROFILE_KEY:
-    print("[档案] 本次网页口令（随机生成，重启会变）：" + _PROFILE_KEY, flush=True)
-    print("[档案] 想固定它：.env 里加一行 ZHIXIAOLI_PROFILE_KEY=你的口令", flush=True)
-else:
-    print("[档案] 网页口令取 .env 里的 ZHIXIAOLI_PROFILE_KEY", flush=True)
+# ================= 用户档案的网页口令（2026-10-22，方案一：用户自己设）=================
+# ⚠️ 老做法有两个毛病：口令只印在服务端黑窗口里（用户看不到）、
+#    没设 .env 就每次重启随机换一个（彩排记的正式演示用不了）。
+# 现在：第一次在本机打开网页会让他自己设 4~8 位，存进库（加盐哈希，不存明文），重启不变；
+#      忘了就在同一台电脑上点「重置口令」，不需要旧口令。
+#      想固定成某个值，就在 .env 设 ZHIXIAOLI_PROFILE_KEY（那时网页上不让改）。
+print(profile_key.banner(), flush=True)
 
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 课表上传 5MB 上限 ✓
 
@@ -630,19 +628,59 @@ def alarm_add():
 # ================= 用户档案（网页窗口用，2026-10-22 新增）=================
 # 为什么要单独一套接口，不复用 /v1/memory：
 #   /v1/memory 要 API token，而网页刻意不持有任何 token；
-#   档案又要能读能改能删，只能给它自己的口令（见上面 _PROFILE_KEY）。
+#   档案又要能读能改能删，只能给它自己的口令（见 profile_key.py）。
+
+def _is_local():
+    """是不是从服务端这台电脑上访问的。
+
+    只在"设置/重置口令"时才要求本机 ✗ —— 否则会场 WiFi 下别人先打开网页，
+    就能把口令设成他自己的，主人反而进不去 ✓
+    """
+    return (request.remote_addr or "") in ("127.0.0.1", "::1")
+
 
 def _profile_authed():
     """口令校验。取 X-Profile-Key 头，也允许 ?key= （方便浏览器直接开 URL 试）。"""
     got = str(request.headers.get("X-Profile-Key") or request.args.get("key") or "")
-    if not got:
-        return False
-    return secrets.compare_digest(got, _PROFILE_KEY)
+    return profile_key.check(got)
 
 
 def _profile_denied():
-    return jsonify({"ok": False, "need_key": True,
-                    "error": "档案口令不对。口令看服务端启动横幅（或 .env 的 ZHIXIAOLI_PROFILE_KEY）"}), 401
+    """401 里带上"是还没设、还是设了但打错了"——网页据此显示不同界面 ✓"""
+    if not profile_key.is_set():
+        return jsonify({"ok": False, "need_key": True, "need_setup": True,
+                        "setup_allowed": _is_local(),
+                        "error": "还没设档案口令" + ("" if _is_local() else "，请到服务端那台电脑上设")}), 401
+    return jsonify({"ok": False, "need_key": True, "need_setup": False,
+                    "error": "档案口令不对"}), 401
+
+
+@app.route("/v1/profile/state", methods=["GET"])
+def profile_state():
+    """网页启动时问一句：设过口令没有、能不能在这儿设。
+
+    ⚠️ 这个接口**不需要口令**（不然就死锁了：要口令才能问能不能设口令），
+       但它只回状态，不回任何档案内容 ✓
+    """
+    st = profile_key.state()
+    st["ok"] = True
+    st["can_setup_here"] = _is_local()
+    return jsonify(st), 200
+
+
+@app.route("/v1/profile/key", methods=["POST"])
+def profile_set_key():
+    """设置 / 重置口令。**只有从本机访问才允许** ✓"""
+    if not _is_local():
+        return jsonify({"ok": False, "error": "只能在服务端那台电脑上设置（用 127.0.0.1 打开）"}), 403
+    data = request.get_json(silent=True, force=True) or {}
+    if str(data.get("action") or "") == "reset":
+        ok, msg = profile_key.reset()
+    else:
+        ok, msg = profile_key.set_key(str(data.get("key") or ""))
+    trace.log("profile_key", ok=ok, action=str(data.get("action") or "set"))
+    return jsonify({"ok": ok, "error": "" if ok else msg, "message": msg,
+                    "key_set": profile_key.is_set()}), 200 if ok else 400
 
 
 @app.route("/v1/profile", methods=["GET"])
