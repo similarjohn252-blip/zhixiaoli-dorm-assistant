@@ -105,22 +105,38 @@ def _check_token():
 #   → 现在由服务端在【5000 一个端口】上把网页送出去 ✓✓
 #   页面里的 CONFIG 用 `location.origin` ✓ → 服务端地址变了它自动跟着变 ✓✓
 # 安全性 ✓：这个页面本来就是【对外公开】的 ✓ 且不含任何密钥 ✓（已用提交护栏验证过 ✓）
-_WEB_PAGE = os.path.join(
+_WEB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "给队友", "给队友的网页修复版_index.html")
+    "给队友")
+
+# 2026-10-22：队友新交付了含课表的一版（USE_MOCK 已关，走真接口），优先送它；
+# 万一它不在，退回 10-19 那版 —— 至少首页不是 404 ✓
+_WEB_PAGE_CANDIDATES = (
+    os.path.join(_WEB_DIR, "网页_2026-10-22_含课表.html"),
+    os.path.join(_WEB_DIR, "给队友的网页修复版_index.html"),
+)
+
+
+def _web_page():
+    for p in _WEB_PAGE_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return ""
 
 
 @app.route("/", methods=["GET"])
 def web_index():
     """送网页首页 ✓ —— 手机/评委打开 http://<服务端地址>:5000/ 就能直接用 ✓"""
-    if not os.path.exists(_WEB_PAGE):
+    page = _web_page()
+    if not page:
         return jsonify({
             "ok": False,
-            "error": "网页文件不在（给队友/给队友的网页修复版_index.html）",
+            "error": "网页文件都不在（给队友/ 下没找到可用页面）",
+            "checked": [os.path.basename(p) for p in _WEB_PAGE_CANDIDATES],
             "hint": "API 照常可用：/v1/health  /v1/chat  /v1/board",
         }), 404
     from flask import send_file
-    return send_file(_WEB_PAGE)
+    return send_file(page)
 
 
 # ================= 路由 =================
