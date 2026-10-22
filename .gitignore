@@ -43,3 +43,8 @@ _材料/
 .coverage
 .coverage.*
 htmlcov/
+
+# 固件编译产物与备份（2026-10-22）
+# 几 MB 的二进制不进仓库 —— 真正的备份是 git 里的源码，随时能重新编译。
+backups/
+code/sketch_oct8a_copy_20261008145732/build/
