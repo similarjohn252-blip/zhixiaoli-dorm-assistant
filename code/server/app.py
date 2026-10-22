@@ -12,12 +12,13 @@
   GET      /v1/health           健康自检 + 版本号（演示前一条命令看能不能上台）
 """
 import os
+import tempfile
 import time
 import traceback
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 
-from . import brain, device, memory, tickets, trace
+from . import brain, device, memory, reminders, tickets, timetable, trace
 
 from .brain import handle_query
 
@@ -40,6 +41,7 @@ try:
 except Exception:
     pass
 app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无害 ✓）
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 课表上传 5MB 上限 ✓
 
 
 # ================= 链路追踪（工程债 B4）=================
@@ -481,3 +483,112 @@ def _access_log(response):
     except Exception:
         pass
     return response
+
+
+# ================= 课表与提醒（2026-10-22 新增）=================
+# 设计见 code\课表与提醒_设计.md；接口结构与「给队友\网页要做的_课表与提醒.md」一致 ✓
+# 这五个接口免 token —— 跟 /v1/board/volume 一个道理：网页要用、内容不敏感 ✓
+# （真正敏感的是读写记忆、写 profile，那些仍然只在带 token 的接口里 ✗）
+
+@app.route("/v1/schedule/upload", methods=["POST"])
+def schedule_upload():
+    """上传课表 PDF，解析后**不保存**，只把结果给网页看一眼。
+
+    ⚠️ 为什么不保存：解析只有九成准（合并单元格会让列错位），
+       必须让用户在网页上校对一遍再存 ✓
+    """
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "没收到文件"}), 400
+    name = (f.filename or "").lower()
+    if not name.endswith(".pdf"):
+        return jsonify({"ok": False, "error": "只支持 PDF，图片和 Excel 暂不支持"}), 400
+
+    tmp = None
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        f.save(tmp.name)
+        tmp.close()
+        items, warnings = timetable.parse_pdf(tmp.name)
+    except Exception as e:
+        trace.log("schedule_upload_error", error=f"{type(e).__name__}: {e}")
+        return jsonify({"ok": False, "error": f"解析失败：{type(e).__name__}"}), 400
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
+    out_items = []
+    for i, it in enumerate(items, 1):
+        row = {"id": f"t{i}"}
+        row.update(it)
+        out_items.append(row)
+
+    trace.log("schedule_upload", count=len(out_items), warnings=len(warnings))
+    return jsonify({"ok": True, "count": len(out_items),
+                    "items": out_items, "warnings": warnings}), 200
+
+
+@app.route("/v1/schedule/save", methods=["POST"])
+def schedule_save():
+    """保存校对后的清单 + 学期参数（第 1 周日期 / 提前量 / 作息表）。"""
+    data = request.get_json(silent=True, force=True) or {}
+    st = reminders.set_settings(
+        week1_monday=data.get("week1_monday"),
+        early_minutes=data.get("early_minutes"),
+        periods=data.get("periods"),
+    )
+    saved = reminders.save_items(data.get("items") or [])
+    trace.log("schedule_save", saved=saved, week1=st["week1_monday"].isoformat(),
+              early=st["early_minutes"])
+    return jsonify({"ok": True, "saved": saved,
+                    "week1_monday": st["week1_monday"].isoformat(),
+                    "early_minutes": st["early_minutes"]}), 200
+
+
+@app.route("/v1/schedule", methods=["GET"])
+def schedule_get():
+    """读当前课表 + 学期参数。没有课表时 items 是空数组，不报错 ✓"""
+    st = reminders.get_settings()
+    items = []
+    for i, it in enumerate(reminders.load_items(), 1):
+        row = {"id": f"t{i}"}
+        row.update(it)
+        items.append(row)
+    return jsonify({"ok": True, "count": len(items), "items": items,
+                    "week1_monday": st["week1_monday"].isoformat(),
+                    "early_minutes": st["early_minutes"],
+                    "periods": st["periods"]}), 200
+
+
+@app.route("/v1/reminders", methods=["GET"])
+def reminders_get():
+    """未来 N 小时的提醒。板子每 3 秒来一次 ✓
+
+    每条都带 in_seconds（还有多少秒）—— 板子不需要真实时间，
+    拿这个换成本地 millis 截止点就行 ✓
+    """
+    try:
+        hours = int(request.args.get("hours", 48))
+    except (ValueError, TypeError):
+        hours = 48
+    return jsonify(reminders.upcoming(hours)), 200
+
+
+@app.route("/v1/alarm", methods=["POST"])
+def alarm_add():
+    """直接加一个闹钟（一次性）。
+
+    body: {"at": "2026-10-22 08:00", "say": "该吃药了"}
+    语音说"十秒后提醒我喝水"的解析在 brain 里做，走这条路存进来 ✓
+    """
+    data = request.get_json(silent=True, force=True) or {}
+    at = data.get("at") or data.get("when")
+    say = str(data.get("say") or data.get("what") or "时间到了")
+    nid = reminders.add_alarm(at, say)
+    if nid is None:
+        return jsonify({"ok": False, "error": "时间格式不对，要「YYYY-MM-DD HH:MM」"}), 400
+    trace.log("alarm_add", id=nid, at=str(at), say=say[:20])
+    return jsonify({"ok": True, "id": nid, "say": say}), 200
