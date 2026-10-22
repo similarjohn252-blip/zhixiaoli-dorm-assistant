@@ -76,7 +76,8 @@ body{
 .msg.bad{color:var(--bad);}
 .msg.warn{color:var(--warn);}
 .msg.muted{color:var(--muted);}
-.empty{color:var(--muted);font-size:13px;padding:10px 0;line-height:1.75;}
+.empty{color:var(--muted);font-size:13px;padding:10px 0;line-height:1.75;  white-space: pre-line;
+}
 .empty.bad{color:var(--bad);}
 
 button{
@@ -1093,12 +1094,29 @@ function localReminders(hours){
   return out;
 }
 
+// 剩余多久：优先用服务端给的 in_seconds（它的时钟是准的），
+// 没给才用浏览器时间减 —— 两个时钟差几十秒会让演示说不清
+function leftText(r){
+  let sec = null;
+  if (typeof r.in_seconds === "number" && r.in_seconds >= 0){
+    sec = r.in_seconds;
+  } else if (r.at instanceof Date && !isNaN(r.at)){
+    sec = Math.round((r.at.getTime() - Date.now()) / 1000);
+  }
+  if (sec === null || sec < 0) return "";
+  if (sec < 60) return "还有 " + sec + " 秒";
+  const m = Math.round(sec / 60);
+  if (m < 60) return "还有 " + m + " 分钟";
+  const h = Math.floor(m / 60), mm = m % 60;
+  return "还有 " + h + " 小时" + (mm ? " " + mm + " 分" : "");
+}
+
 function renderReminders(list){
   const box = el("remList");
   box.innerHTML = "";
 
   if (!list.length){
-    box.appendChild(emptyBox("未来 48 小时没有课，所以暂时没有提醒（周末、假期，或者周次不匹配就是这样）。"));
+    box.appendChild(emptyBox("未来 48 小时没有课，所以暂时没有提醒。\n常见三种情况：遇上周六周日、遇上假期、或者课表里这几门课本周不在它的周次范围内（比如课表写「2-8周,10-12周」，第 9 周就不会提醒）。\n这不是出错，换一天看，或者核对一下课表的周次。"));
     el("remHint").textContent = USE_MOCK ? "示例数据集中在周一至周五，所以周末看不到提醒。" : "";
     return;
   }
@@ -1109,7 +1127,10 @@ function renderReminders(list){
 
     const t = document.createElement("div");
     t.className = "t";
-    t.textContent = fmtDateTime(r.at);
+    let line = fmtDateTime(r.at);
+    const left = leftText(r);
+    if (left) line += "　·　" + left;
+    t.textContent = line;
 
     const s = document.createElement("div");
     s.className = "s";
@@ -1145,7 +1166,13 @@ async function refreshReminders(){
   try {
     const j = await call(api("/v1/reminders?hours=48"));
     const list = (j.items || []).map(function(x){
-      return { at: new Date(x.at), say: x.say || "", kind: x.kind || "class" };
+      return {
+        at: new Date(x.at),
+        say: x.say || "",
+        kind: x.kind || "class",
+        // 服务端按自己的时钟算好的剩余秒数，优先用它显示"还有多久"
+        in_seconds: (typeof x.in_seconds === "number" ? x.in_seconds : null)
+      };
     }).filter(function(x){ return !isNaN(x.at.getTime()); });
     list.sort(function(a, b){ return a.at - b.at; });
     renderReminders(list);
@@ -1210,16 +1237,33 @@ async function loadSched(){
 /* =====================================================================
    校园信息：校车
    ===================================================================== */
-// 四套时刻表 —— 把学校发布的班次填到这里即可（页面结构已按四套做好）
-// 例：{ route: "杨家坪 → 两江", times: ["06:50", "08:00"] }
+// 四套时刻表 —— 数据来源：code/知识库补充_校车.md（2026-2027 秋季学期，9 月 6 日起运行安排）
+// 周六那套只适用于第 2 周到第 18 周；节假日最后一天含 9 月 6 日。要改班次就改这里。
 const BUS_TIMES = {
-  mon: [],
-  tue_fri: [],
-  sat: [],
-  holiday_last: []
+  mon: [
+    { route: "杨家坪 → 两江", times: ["06:50", "07:00", "12:30（12:50 经停花溪）", "18:30（19:00 经停花溪）"] },
+    { route: "花溪 → 两江",   times: ["06:50", "07:00"] },
+    { route: "两江 → 经花溪至杨家坪", times: ["10:30", "12:50", "17:40"] },
+    { route: "两江 → 花溪",   times: ["12:50"] },
+    { route: "两江 → 经杨家坪至花溪", times: ["20:45"] }
+  ],
+  tue_fri: [
+    { route: "杨家坪 → 两江", times: ["06:50", "07:00", "12:30（12:50 经停花溪）", "16:00（16:20 经停花溪）", "18:30（19:00 经停花溪）"] },
+    { route: "花溪 → 两江",   times: ["06:50", "07:00", "12:50"] },
+    { route: "两江 → 经花溪至杨家坪", times: ["10:30", "12:50", "16:30"] },
+    { route: "两江 → 经杨家坪至花溪", times: ["17:40", "18:20", "20:45"] },
+    { route: "两江 → 花溪",   times: ["18:20"] }
+  ],
+  sat: [
+    { route: "杨家坪 → 两江", times: ["06:50（07:10 经停花溪）", "12:30（12:50 经停花溪）"] },
+    { route: "两江 → 经花溪至杨家坪", times: ["12:50", "18:20"] }
+  ],
+  holiday_last: [
+    { route: "杨家坪 → 两江", times: ["16:30（16:50 经停花溪）"] }
+  ]
 };
 const BUS_LABEL = { mon:"周一", tue_fri:"周二至周五", sat:"周六", holiday_last:"节假日最后一天" };
-const BUS_NOTE = "上车地点：杨家坪 · 荷花池六栋前；花溪 · 大门口；两江 · 弘远楼大门口、百味坊对面嘉福路。周一第一班 6:50（杨家坪、花溪都有车去两江）。";
+const BUS_NOTE = "上车地点：杨家坪 · 荷花池六栋前；花溪 · 大门口；两江 · 弘远楼大门口、百味坊对面嘉福路。\n主要服务两江校区授课教师及相关工作人员：教职工凭教工卡或知行理工本人界面乘车；其他因工作需要乘车的，要先到花溪明德楼 306 或两江百味坊五楼 515 办乘车证明领车票。\n花溪 62563023（杨老师、王老师）；两江 62565025（饶老师）。";
 
 let busKey = "mon";
 function renderBus(){
