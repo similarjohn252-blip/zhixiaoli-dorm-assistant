@@ -291,6 +291,11 @@ void loop() {
     // 【网页入口】非阻塞，尽量放在 audio.loop() 之后，别抢音频喂数据的节奏。
     server.handleClient();
 
+    // 【提醒】3 秒问一次服务端，到点本地播报（2026-10-22）
+    // 两个函数内部都做了"正在播报就跳过"，不会抢音频的节奏 ✓
+    pollReminders();
+    checkReminders();
+
     // 播放状态每秒报一次。重点看「播放进度」有没有在往前走：
     //   进度在涨   -> 解码器确实在吐 PCM，问题只剩功放/喇叭侧
     //   进度一直 0 -> 流开了但没解码，问题在网络/解码这一侧
@@ -735,6 +740,106 @@ void sendToZhiXiaoLi(String userQuery) {
         Serial.println(httpResponseCode);
     }
     http.end();
+}
+
+// ================= 提醒轮询（2026-10-22）=================
+// 详见 code\课表与提醒_设计.md
+//
+// ⭐ 板子不存真实时间 —— 它没有 RTC 也没有 NTP，服务端给的是"还有多少秒"，
+//    这里换算成 millis 截止点。不用对时、不用管时区 ✓
+//
+// ⭐ 播报在本地做：到点直接放服务端已经拼好的那个音频（叮咚 + 人声），
+//    不在这时候再去请求服务端 —— 断网了已经排好的照样响 ✓
+//
+// ⚠️ 一次最多记 6 条。设计上一个学期二十来个时段，但真正"未来 6 小时内"的
+//    同时不会超过几条，记多了白占内存。
+struct RemindItem {
+    String        id;
+    unsigned long dueMs;
+    String        url;
+    String        say;
+};
+
+static RemindItem     reminds[6];
+static int            remindCount = 0;
+static unsigned long  lastRemindPollMs = 0;
+static const unsigned long REMIND_POLL_MS = 3000;   // 3 秒一次：语音说"十秒后提醒我"最多晚 3 秒 ✓
+
+static String serverBase() {
+    // apiUrl 形如 http://192.168.137.1:5000/v1/chat，这里切掉 /v1/…
+    String b = String(apiUrl);
+    int i = b.lastIndexOf("/v1/");
+    if (i > 0) b = b.substring(0, i);
+    return b;
+}
+
+void pollReminders() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (audio.isRunning()) return;              // 播报中，别抢网络和 CPU
+    if (millis() - lastRemindPollMs < REMIND_POLL_MS) return;
+    lastRemindPollMs = millis();
+
+    static WiFiClient plainClient;
+    String url = serverBase() + "/v1/reminders?hours=6";
+    HTTPClient http;
+    http.begin(plainClient, url);
+    http.setTimeout(1500);                      // 局域网够用，别拖住 loop
+    http.addHeader("Authorization", String("Bearer ") + apiKey);
+    int code = http.GET();
+    if (code != 200) {
+        http.end();
+        if (code > 0) Serial.printf("【提醒】轮询返回 %d\n", code);
+        return;
+    }
+    String body = http.getString();
+    http.end();
+
+    DynamicJsonDocument doc(4096);
+    if (deserializeJson(doc, body)) {
+        Serial.println("【提醒】返回的 JSON 解不开");
+        return;
+    }
+
+    for (JsonVariant v : doc["items"].as<JsonArray>()) {
+        String id  = v["id"]        | "";
+        long   left = v["in_seconds"] | -1;
+        String say = v["say"]       | "";
+        String u   = v["audio_url"] | "";
+        if (id == "" || left < 0 || u == "") continue;   // 没音频就没法播，等下一轮
+
+        bool known = false;
+        for (int k = 0; k < remindCount; k++) {
+            if (reminds[k].id == id) { known = true; break; }
+        }
+        if (known) continue;                             // 已经记过了，别重复播
+        if (remindCount >= 6) continue;
+
+        reminds[remindCount].id    = id;
+        reminds[remindCount].dueMs = millis() + (unsigned long)left * 1000UL;
+        reminds[remindCount].url   = u;
+        reminds[remindCount].say   = say;
+        remindCount++;
+        Serial.printf("【提醒】记下 %s，还有 %ld 秒：%s\n", id.c_str(), left, say.c_str());
+    }
+}
+
+void checkReminders() {
+    if (remindCount == 0) return;
+    if (audio.isRunning()) return;              // 正在播报，等它放完
+    unsigned long now = millis();
+    for (int k = 0; k < remindCount; k++) {
+        if (now < reminds[k].dueMs) continue;
+        Serial.printf("【提醒】到点！%s\n", reminds[k].say.c_str());
+        oledStatus = "提醒：" + reminds[k].say;
+        oledFoot   = "到点了";
+        oledRefresh(true);
+        bool ok = audio.connecttohost(reminds[k].url.c_str());
+        Serial.printf("【提醒】播报 %s\n", ok ? "开始" : "失败（网络/解码）");
+        // 放完就删，一次性
+        for (int j = k; j < remindCount - 1; j++) reminds[j] = reminds[j + 1];
+        remindCount--;
+        return;
+    }
 }
 
 // ================= 三颗 LED：真实硬件动作（工程债 C2）=================
