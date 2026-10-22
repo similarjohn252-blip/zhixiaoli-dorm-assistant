@@ -130,6 +130,15 @@ def make_reminder_wav(say, out_path, tts_maker=None, chime_path=None):
     except Exception:
         voice = None
 
+    # ⚠️ music.make_tts 返回的是【URL】不是本地路径（http://…/audio/xxx.wav）✗
+    #    直接拿去做 os.path.exists 会失败，然后悄悄退回成"只有叮咚"——
+    #    不报错、听着也像那么回事，最容易漏 ✗ 这里必须先转成本地路径。
+    if voice and "://" in str(voice):
+        from .config import AUDIO_DIR
+        fname = os.path.basename(str(voice).split("?")[0].rstrip("/"))
+        cand = os.path.join(AUDIO_DIR, fname)
+        voice = cand if os.path.exists(cand) else None
+
     if not voice or not os.path.exists(voice):
         return chime_path or make_chime()
 

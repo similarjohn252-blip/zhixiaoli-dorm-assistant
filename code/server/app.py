@@ -18,7 +18,7 @@ import traceback
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 
-from . import brain, device, memory, reminders, tickets, timetable, trace
+from . import brain, device, memory, remind_audio, reminders, tickets, timetable, trace
 
 from .brain import handle_query
 
@@ -574,7 +574,11 @@ def reminders_get():
         hours = int(request.args.get("hours", 48))
     except (ValueError, TypeError):
         hours = 48
-    return jsonify(reminders.upcoming(hours)), 200
+    data = reminders.upcoming(hours)
+    # 快到点的那几条顺带生成音频（提示音 + 人声拼好），板子只放一个 URL ✓
+    # 只在 10 分钟窗口内生成，生成过按 id 缓存，不重复调 TTS ✓
+    remind_audio.decorate(data["items"], AUDIO_DIR, request.host_url)
+    return jsonify(data), 200
 
 
 @app.route("/v1/alarm", methods=["POST"])
