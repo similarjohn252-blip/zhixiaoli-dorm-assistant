@@ -35,7 +35,10 @@ def _patch(monkeypatch, replies):
 
 def test_selfheal_retries_with_bare_question(monkeypatch):
     """⭐ 第一次带上下文答不上来 → 第二次必须是【裸问题】✓ 而且用第二次的回答 ✓"""
-    memory._memory["facts"] = ["用户住 3 栋 502", "用户叫小李"]
+    memory._memory["facts"] = [
+        {"id": 1, "ts": "", "text": "用户住 3 栋 502", "kind": "private"},
+        {"id": 2, "ts": "", "text": "用户叫小李", "kind": "profile"},
+    ]
     memory._memory["events"] = []
     seen = _patch(monkeypatch, [("这个我暂时查不到", "NONE"),
                                 ("咱们学校的校训是明德笃行、自强日新。", "NONE")])
@@ -71,7 +74,8 @@ def test_selfheal_retries_even_without_context(monkeypatch):
 
 def test_selfheal_retries_at_most_once(monkeypatch):
     """⭐ 最多重试**一次** ✗ —— 不能变成"答不上来就狂问" ✓"""
-    memory._memory["facts"] = ["用户住 3 栋 502"]
+    memory._memory["facts"] = [{"id": 1, "ts": "", "text": "用户住 3 栋 502",
+                                "kind": "private"}]
     memory._memory["events"] = []
     seen = _patch(monkeypatch, [("查不到", "NONE"), ("还是查不到", "NONE")])
 
@@ -83,7 +87,8 @@ def test_selfheal_retries_at_most_once(monkeypatch):
 
 def test_selfheal_survives_retry_exception(monkeypatch):
     """重问时抛异常 → 忽略它 ✓ 用第一次的回答（别把已有的弄丢 ✗）"""
-    memory._memory["facts"] = ["用户住 3 栋 502"]
+    memory._memory["facts"] = [{"id": 1, "ts": "", "text": "用户住 3 栋 502",
+                                "kind": "private"}]
     memory._memory["events"] = []
     calls = []
 

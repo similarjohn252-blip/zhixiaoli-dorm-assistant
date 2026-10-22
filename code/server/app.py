@@ -12,6 +12,7 @@
   GET      /v1/health           健康自检 + 版本号（演示前一条命令看能不能上台）
 """
 import os
+import secrets
 import tempfile
 import time
 import traceback
@@ -25,7 +26,7 @@ from .brain import handle_query
 from .config import (
     ACCESS_LOG, API_TOKEN, AUDIO_DIR, BOARD_HOST, CODE_VERSION, MEMORY_DB,
     MEMORY_FILE,
-    MIC_LAST_WAV, STARTED_AT,
+    MIC_LAST_WAV, MEMORY_MAX_FACTS, PROFILE_KEY, STARTED_AT,
 )
 from .music import (
     handle_music, music_request,
@@ -41,6 +42,18 @@ try:
 except Exception:
     pass
 app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无害 ✓）
+
+
+# ================= 用户档案的网页口令（2026-10-22）=================
+# .env 里 ZHIXIAOLI_PROFILE_KEY 设了就用它；没设就每次启动随机生成并打印
+# ⚠️ 随机生成意味着**重启就换** —— 故意这样：不设就没法长期泄露 ✓
+_PROFILE_KEY = PROFILE_KEY or "".join(secrets.choice("0123456789") for _ in range(6))
+if not PROFILE_KEY:
+    print("[档案] 本次网页口令（随机生成，重启会变）：" + _PROFILE_KEY, flush=True)
+    print("[档案] 想固定它：.env 里加一行 ZHIXIAOLI_PROFILE_KEY=你的口令", flush=True)
+else:
+    print("[档案] 网页口令取 .env 里的 ZHIXIAOLI_PROFILE_KEY", flush=True)
+
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 课表上传 5MB 上限 ✓
 
 
@@ -612,3 +625,88 @@ def alarm_add():
         return jsonify({"ok": False, "error": "时间格式不对，要「YYYY-MM-DD HH:MM」"}), 400
     trace.log("alarm_add", id=nid, at=str(at), say=say[:20])
     return jsonify({"ok": True, "id": nid, "say": say}), 200
+
+
+# ================= 用户档案（网页窗口用，2026-10-22 新增）=================
+# 为什么要单独一套接口，不复用 /v1/memory：
+#   /v1/memory 要 API token，而网页刻意不持有任何 token；
+#   档案又要能读能改能删，只能给它自己的口令（见上面 _PROFILE_KEY）。
+
+def _profile_authed():
+    """口令校验。取 X-Profile-Key 头，也允许 ?key= （方便浏览器直接开 URL 试）。"""
+    got = str(request.headers.get("X-Profile-Key") or request.args.get("key") or "")
+    if not got:
+        return False
+    return secrets.compare_digest(got, _PROFILE_KEY)
+
+
+def _profile_denied():
+    return jsonify({"ok": False, "need_key": True,
+                    "error": "档案口令不对。口令看服务端启动横幅（或 .env 的 ZHIXIAOLI_PROFILE_KEY）"}), 401
+
+
+@app.route("/v1/profile", methods=["GET"])
+def profile_list():
+    """列出档案（学号手机号打码）+ 上限。"""
+    if not _profile_authed():
+        return _profile_denied()
+    items = memory.facts_for_display(mask=True)
+    return jsonify({"ok": True, "count": len(items),
+                    "limit": MEMORY_MAX_FACTS, "items": items}), 200
+
+
+@app.route("/v1/profile", methods=["POST"])
+def profile_write():
+    """增 / 改 / 删 / 清空。body 里用 action 区分。
+
+    add    {"action":"add","text":"我大二，计算机专业","kind":"profile"(可省)}
+    update {"action":"update","text":"旧内容","new":"新内容","kind":"profile"(可省)}
+    delete {"action":"delete","text":"要删的内容"}
+    clear  {"action":"clear"}
+    """
+    if not _profile_authed():
+        return _profile_denied()
+    data = request.get_json(silent=True, force=True) or {}
+    action = str(data.get("action") or "add").lower()
+    text = str(data.get("text") or "").strip()
+    new = data.get("new")
+    kind = data.get("kind")
+    if kind not in (None, "", "profile", "private"):
+        kind = None
+
+    if action == "add":
+        if not text:
+            return jsonify({"ok": False, "error": "内容不能为空"}), 400
+        if len(text) > 60:
+            return jsonify({"ok": False, "error": "一条别超过 60 字，太长了模型也用不上"}), 400
+        if len(memory._memory["facts"]) >= MEMORY_MAX_FACTS:
+            return jsonify({"ok": False, "full": True,
+                            "error": f"档案已满（{MEMORY_MAX_FACTS} 条），先删几条再加"}), 409
+        added = memory.add_fact(text, kind or None)
+        trace.log("profile_add", text=text[:20], added=added)
+        return jsonify({"ok": added, "added": added,
+                        "count": len(memory._memory["facts"]),
+                        "error": "" if added else "这条已经记过了"}), 200
+
+    if action == "update":
+        if not text:
+            return jsonify({"ok": False, "error": "要指明改哪一条"}), 400
+        done = memory.update_fact(text, new if isinstance(new, str) else None, kind or None)
+        trace.log("profile_update", text=text[:20], done=done)
+        return jsonify({"ok": done, "count": len(memory._memory["facts"]),
+                        "error": "" if done else "没找到这条，或者新内容已经被别的条目占了"}), 200
+
+    if action == "delete":
+        if not text:
+            return jsonify({"ok": False, "error": "要指明删哪一条"}), 400
+        done = memory.delete_fact(text)
+        trace.log("profile_delete", text=text[:20], done=done)
+        return jsonify({"ok": done, "count": len(memory._memory["facts"]),
+                        "error": "" if done else "没找到这条"}), 200
+
+    if action == "clear":
+        n = memory.clear_facts()
+        trace.log("profile_clear", cleared=n)
+        return jsonify({"ok": True, "cleared": n, "count": 0}), 200
+
+    return jsonify({"ok": False, "error": "action 只能是 add / update / delete / clear"}), 400

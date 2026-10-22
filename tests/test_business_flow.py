@@ -22,7 +22,10 @@ def _setup(monkeypatch, facts=None, reply=None, action="NONE"):
     monkeypatch.setattr(brain, "BRAIN", "cloud")
     monkeypatch.setattr(brain, "ask_cloud", lambda q: ((reply or q), action))
     monkeypatch.setattr(brain, "make_tts", lambda t: "")
-    memory._memory["facts"] = list(facts or [])
+    # 2026-10-22：facts 元素从 str 变成 dict（带 kind 分级）
+    memory._memory["facts"] = [
+        {"id": i, "ts": "", "text": str(f), "kind": memory.detect_kind(str(f))}
+        for i, f in enumerate(facts or [])]
     memory._history.clear()
     brain._pending.update(kind="", note="", ts=0.0)
     tickets.clear_all()

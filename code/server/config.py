@@ -167,8 +167,18 @@ MEMORY_FILE = os.environ.get(
 #    时，os.environ.get 会老老实实返回空串 → sqlite3.connect("") 直接炸 ✓（差点埋雷 ✓）
 MEMORY_DB = os.environ.get("ZHIXIAOLI_MEMORY_DB") or (
     os.path.splitext(MEMORY_FILE)[0] + ".db")
-MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "20"))
+# 档案条数上限（2026-10-22 从 20 提到 50：一学期的关键信息够放了）
+# ⚠️ 存储上限 ≠ 注入上限 ✗ —— 注入永远只挑最多 3 条（memory.profile_for_query），
+#    因为实测背景越长知识库检索越容易被稀释
+MEMORY_MAX_FACTS = int(os.environ.get("ZHIXIAOLI_MEMORY_MAX", "50"))
 HISTORY_TURNS = int(os.environ.get("ZHIXIAOLI_HISTORY_TURNS", "3"))
+
+# 网页「用户档案」窗口的口令（2026-10-22 新增）
+# 为什么不像别的接口那样直接免 token：档案里有学号、手机号、房间号，
+#   同一个热点下谁打开网页都能看到 = 泄露 ✗
+# 为什么不像 /v1/memory 那样用 API token：网页刻意不持有任何 token ✗
+# → 折中：一个单独的口令，用户自己在 .env 里设；没设就**每次启动随机生成**并打印在横幅上 ✓
+PROFILE_KEY = os.environ.get("ZHIXIAOLI_PROFILE_KEY") or ""
 
 # ---------------- 报修工单台账（SQLite）----------------
 # 为什么用 SQLite：标准库自带、零依赖、有并发保护（WAL 模式），比裸 JSON 可靠 ✓

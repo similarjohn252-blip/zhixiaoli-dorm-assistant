@@ -241,6 +241,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
       <a href="#board">板子与音量</a>
       <a href="#schedule">课表与提醒</a>
       <a href="#reminders">提醒预览</a>
+      <a href="#profile">用户档案</a>
       <a href="#campus">校园信息</a>
     </nav>
   </header>
@@ -346,9 +347,49 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
     <div class="hint" id="remHint"></div>
   </section>
 
-  <!-- 6 校园信息 -->
+
+  <!-- 6 用户档案 -->
+  <section class="card" id="profile">
+    <h2><span class="idx">6</span>用户档案 <span class="badge" id="pfBadge">未解锁</span></h2>
+
+    <div class="block">
+      <div class="block-t">① 解锁</div>
+      <div class="row">
+        <input type="password" id="pfKey" placeholder="档案口令（看服务端启动横幅）"
+               style="flex:1 1 220px">
+        <button class="ghost sm" id="pfUnlock">解锁</button>
+        <button class="ghost sm" id="pfLock">锁定</button>
+      </div>
+      <div class="hint">档案里有学号、手机号这类东西，所以这道门要口令。
+        口令在服务端启动横幅里（或 .env 的 ZHIXIAOLI_PROFILE_KEY）。
+        只存在这个标签页里，关掉就没了。</div>
+      <div class="msg muted" id="pfMsg"></div>
+    </div>
+
+    <div class="block">
+      <div class="block-t">② 档案清单 <span class="cnt" id="pfCount"></span></div>
+      <div class="hint" style="margin-top:0;margin-bottom:8px;">
+        标「可用」的会用来做个性化回答（比如"你大二计算机、英语弱"）。
+        标「只存」的只在这台设备上留着，不写进回答、也不发给学校平台。
+        改完点保存，删掉点 ✕，一次一条。</div>
+      <div id="pfList"></div>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="pfNew" placeholder="例如：我大二，计算机专业" style="flex:1 1 240px">
+        <select id="pfKind" style="min-height:38px;padding:6px 9px;font-size:14px;border:1px solid var(--line);border-radius:8px;font-family:inherit;background:#fff;color:var(--text);">
+          <option value="profile">可用</option>
+          <option value="private">只存</option>
+        </select>
+        <button class="ghost sm" id="pfAdd">＋ 添加</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost sm" id="pfClear">清空全部档案</button>
+        <span class="msg" id="pfClearMsg"></span>
+      </div>
+    </div>
+  </section>
+  <!-- 7 校园信息 -->
   <section class="card" id="campus">
-    <h2><span class="idx">6</span>校园信息</h2>
+    <h2><span class="idx">7</span>校园信息</h2>
     <div class="info-grid">
 
       <div class="info">
@@ -1375,6 +1416,164 @@ el("early").addEventListener("change", function(ev){
   sched.early_minutes = Number(ev.target.value) || 20;
   scheduleReminderRefresh();
 });
+
+
+// ================= 用户档案（2026-10-22 新增）=================
+// 口令只存 sessionStorage：关标签页就没了，也不写进页面源码 ✓
+function pfGetKey(){ try { return sessionStorage.getItem("zhixiaoli_profile_key") || ""; } catch (e) { return ""; } }
+function pfSetKey(k){ try { sessionStorage.setItem("zhixiaoli_profile_key", k || ""); } catch (e) {} }
+function pfUnlocked(){ return !!pfGetKey(); }
+
+function pfMsg(text, kind){
+  const m = el("pfMsg");
+  m.textContent = text || "";
+  m.className = "msg " + (kind || "muted");
+}
+
+function pfSetBadge(){
+  const b = el("pfBadge");
+  if (pfUnlocked()){ b.textContent = "已解锁"; b.className = "badge ok"; }
+  else { b.textContent = "未解锁"; b.className = "badge"; }
+}
+
+async function pfCall(path, opts){
+  const o = Object.assign({}, opts || {});
+  o.headers = Object.assign({}, o.headers || {}, { "X-Profile-Key": pfGetKey() });
+  return call(api(path), o);
+}
+
+function pfKindText(k){ return k === "private" ? "只存" : "可用"; }
+
+function pfRender(items){
+  const box = el("pfList");
+  box.innerHTML = "";
+  el("pfCount").textContent = items.length ? ("共 " + items.length + " 条") : "";
+  if (!items.length){
+    box.appendChild(emptyBox("还没有任何档案。跟它说「记住我英语基础不好」，或者在上面加一条。"));
+    return;
+  }
+  items.forEach(function(it){
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginBottom = "8px";
+
+    const badge = document.createElement("span");
+    badge.className = "badge" + (it.kind === "private" ? "" : " ok");
+    badge.textContent = pfKindText(it.kind);
+    badge.title = it.kind === "private" ? "只存不注入" : "会用于个性化回答";
+
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.value = it.shown;              // 默认打码显示
+    inp.dataset.raw = it.text;         // 原文放 dataset，改的时候才用
+    inp.style.flex = "1 1 220px";
+    inp.onfocus = function(){ inp.value = inp.dataset.raw; };   // 聚焦时显示原文
+    inp.onblur = function(){ if (inp.value === inp.dataset.raw) inp.value = it.shown; };
+
+    const save = document.createElement("button");
+    save.className = "ghost sm";
+    save.textContent = "保存";
+    save.onclick = function(){ pfUpdate(it.text, inp.value); };
+
+    const del = document.createElement("button");
+    del.className = "ghost sm";
+    del.textContent = "✕";
+    del.title = "删掉这条";
+    del.onclick = function(){ pfDelete(it.text); };
+
+    row.appendChild(badge);
+    row.appendChild(inp);
+    row.appendChild(save);
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+async function pfLoad(){
+  if (!pfUnlocked()){ pfSetBadge(); el("pfList").innerHTML = ""; el("pfCount").textContent = ""; return; }
+  try {
+    const j = await pfCall("/v1/profile");
+    if (j.ok === false){ pfMsg(j.error || "读不到档案", "bad"); return; }
+    pfRender(j.items || []);
+    pfMsg("口令对了。" + (j.limit ? "上限 " + j.limit + " 条。" : ""), "ok");
+  } catch (e){
+    pfMsg("读取失败：" + e.message + (e.status === 401 ? "（口令对不对？）" : ""), "bad");
+  }
+  pfSetBadge();
+}
+
+async function pfAdd(){
+  const text = (el("pfNew").value || "").trim();
+  if (!text){ pfMsg("先写点内容", "warn"); return; }
+  try {
+    const j = await pfCall("/v1/profile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add", text: text, kind: el("pfKind").value })
+    });
+    if (j.ok === false){ pfMsg(j.error || "没加进去", j.full ? "bad" : "warn"); return; }
+    el("pfNew").value = "";
+    pfMsg("加好了。", "ok");
+    pfLoad();
+  } catch (e){ pfMsg("添加失败：" + e.message, "bad"); }
+}
+
+async function pfUpdate(oldText, newText){
+  newText = (newText || "").trim();
+  if (!newText){ pfMsg("内容不能为空", "warn"); return; }
+  if (newText === oldText){ pfMsg("没有改动", "muted"); return; }
+  try {
+    const j = await pfCall("/v1/profile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", text: oldText, new: newText })
+    });
+    if (j.ok === false){ pfMsg(j.error || "没改成", "bad"); return; }
+    pfMsg("改好了。", "ok");
+    pfLoad();
+  } catch (e){ pfMsg("改失败：" + e.message, "bad"); }
+}
+
+async function pfDelete(text){
+  if (!confirm("删掉这条档案？删了它就不再个性化你了。")) return;
+  try {
+    const j = await pfCall("/v1/profile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", text: text })
+    });
+    if (j.ok === false){ pfMsg(j.error || "没删掉", "bad"); return; }
+    pfMsg("删了。", "ok");
+    pfLoad();
+  } catch (e){ pfMsg("删失败：" + e.message, "bad"); }
+}
+
+async function pfClear(){
+  if (!confirm("把全部档案都清掉？这个动作没法撤销。")) return;
+  try {
+    const j = await pfCall("/v1/profile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear" })
+    });
+    el("pfClearMsg").textContent = "清掉了 " + (j.cleared || 0) + " 条";
+    pfLoad();
+  } catch (e){ el("pfClearMsg").textContent = "清空失败：" + e.message; }
+}
+
+el("pfUnlock").addEventListener("click", function(){
+  const k = (el("pfKey").value || "").trim();
+  if (!k){ pfMsg("先把口令填上", "warn"); return; }
+  pfSetKey(k);
+  pfLoad();
+});
+el("pfLock").addEventListener("click", function(){
+  pfSetKey("");
+  el("pfKey").value = "";
+  pfMsg("锁上了。", "muted");
+  pfLoad();
+});
+el("pfAdd").addEventListener("click", pfAdd);
+el("pfNew").addEventListener("keydown", function(ev){ if (ev.key === "Enter") pfAdd(); });
+el("pfClear").addEventListener("click", pfClear);
+pfSetBadge();
+if (pfUnlocked()) pfLoad();
 
 // 启动
 refreshAll();

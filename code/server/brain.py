@@ -64,6 +64,13 @@ def _cloud_request(query, conv_id):
         print(f"[云端] 输入超过应用声明的 {CLOUD_INPUT_MAX} 字上限，已截断", flush=True)
     body = {"inputs": {"query": send_q}, "query": send_q,
             "response_mode": "blocking", "user": CLOUD_USER}
+    # ⭐ 2026-10-22：用户档案额外走平台 inputs.memory ✓
+    #   平台上"开始"节点声明了 memory 变量时它会生效（工作流里可以用 {{#memory#}} 取）；
+    #   没声明也没关系 —— 实测多传一个未声明的键，平台照样 200（被忽略，不报错）。
+    #   所以这里可以"先传着"，等平台配好了自动升级效果 ✓
+    prof = memory.memory_input()
+    if prof:
+        body["inputs"]["memory"] = prof[:CLOUD_INPUT_MAX]
     if conv_id:
         body["conversation_id"] = conv_id
 
@@ -217,7 +224,7 @@ def _guess_room() -> str:
     为什么不问平台：房间号是我们自己记的事实（memory），问平台反而会编 ✗
     """
     for f in reversed(memory._memory.get("facts", [])):
-        room = _room_in(f)
+        room = _room_in(f.get("text", "") if isinstance(f, dict) else f)
         if room:
             return room
     return ""
@@ -280,8 +287,8 @@ def _action_guard(query, reply, action):
 def local_reply(query):
     # 断网时也能回答"我叫什么" —— 证明记忆是真存下来的
     if (("我叫什么" in query or "我是谁" in query or "你记得我" in query)
-            and memory._memory["facts"]):
-        return "你跟我说过：" + "；".join(memory._memory["facts"][-3:]), "NONE"
+            and memory.facts_text()):
+        return "你跟我说过：" + memory.facts_text(), "NONE"
     # 报修：本地也该说人话（故障演练实测：以前只说"我在呢，有什么可以帮你的吗" ✗，
     # 用户明明在报修，答非所问很突兀；真工单由 handle_query 那边建 ✓）
     if _is_repair(query):
@@ -349,15 +356,49 @@ _OTHER_CITIES = ("北京", "上海", "广州", "深圳", "成都", "武汉", "�
                  "南京", "天津", "苏州", "长沙", "郑州", "济南", "昆明", "贵阳")
 
 
+# 「记住…」之后还剩什么？什么都不剩才算纯交代
+_REMEMBER_NOISE = ("记住", "帮我", "你要", "要记得", "记得", "记一下", "记着",
+                   "别忘了", "以后", "请", "用户", "我", "的", "是", "了")
+_QUESTION_MARKS = ("?", "？", "吗", "怎么", "什么", "哪", "几", "多少", "如何", "为什么")
+
+
+def _is_plain_remember(query):
+    """整句只是"记住某件事"，没有顺手问别的。"""
+    q = str(query or "")
+    if any(w in q for w in _QUESTION_MARKS):
+        return False
+    left = q
+    for w in _REMEMBER_NOISE:
+        left = left.replace(w, "")
+    left = re.sub(r"[\s，,。.！!：:；;、]+", "", left)
+    left = re.sub(r"\d", "", left)      # 学号/手机号本来就长，数字不算额外问题 ✓
+    return len(left) <= 12
+
+
 def handle_query(query):
     """返回 dict：voice_text / device_action / audio_url /
     source / memory / history。"""
     query = (query or "").strip()
 
-    # 1) 先从这句话里提取长期记忆（"我叫小李"、"记住…"）
+    # 1) 先从这句话里提取长期档案 —— 2026-10-22 起**只有明确要求**才写（「记住…」「你要记得…」），
+    #    随口一句「我叫小李」「我住 3 栋 502」不再自动记 ✗（收紧原因见 memory.py 顶部）
     with trace.timed("记忆"):
-        for fact in memory.extract_facts(query):
-            memory.add_fact(fact)
+        got_facts = memory.extract_facts(query)
+        added = [f for f in got_facts if memory.add_fact(f)]
+
+    # 1.5) 整句就是"记住…" → 本地当场确认（2026-10-22）
+    #      为什么不都走平台：档案写入是确定动作，绕平台要 3~8 秒，平台挂了还得重试。
+    #      为什么不一律直出：「记住我英语不好，高数怎么复习」这种半交代半提问，
+    #      直出会让用户问了问题却只收到"好的我记住了" ✗ → 只有**纯交代**才直出。
+    if added and _is_plain_remember(query):
+        # ⚠️ 不能按字面找"住/学号"—— "记住"里的"住"会被当成住址 ✗（实测踩到）
+        #    改成用档案自己的分级判断：private 的就没法念出来 ✓
+        if any(memory.detect_kind(f) == "private" for f in added):
+            text = "好的，我记下来了。这条我不会在回答里念出来，只用来在这台设备上帮你。"
+        else:
+            text = "好的，我记住了：" + "；".join(added) + "。以后回答会照顾到你这些情况。"
+        print("[档案] 本地直出确认（新增 " + str(len(added)) + " 条）", flush=True)
+        return _finish(query, text, "NONE", "本地档案")
 
     # 2) 先判"问报修进度" —— **必须排在报修前面** ✗
     #    否则"我报修的进度怎么样了"会因为含"报修"两个字被当成新报修，
