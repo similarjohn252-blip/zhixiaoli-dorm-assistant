@@ -16,3 +16,7 @@ python-dotenv==1.2.4
 edge-tts==7.3.1
 # edge-tts 的 mp3 是 MPEG-2/24kHz，板子解不了 ✗ → 用它转成 16k WAV ✓
 soundfile==0.14.0
+
+# 课表解析用（2026-10-22 起）。只在用到课表功能时才 import，
+# 所以没装也不影响服务端启动，但课表上传会失败。
+pdfplumber==0.11.10
