@@ -15,7 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
-from . import trace, weather
+from . import alarm, reminders, trace, weather
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -404,6 +404,19 @@ def handle_query(query):
             print(f"[天气] 高德: {text}", flush=True)
             return _finish(query, text, "NONE", "本地天气·高德")
         print("[天气] 高德没取到，交给后面的兜底", flush=True)
+
+    # 3.86) 定闹钟 → 本地解析（2026-10-22 ✓ 一次性闹钟 ✓ 到点由板子播报 ✓）
+    if alarm.looks_like_alarm(query):
+        with trace.timed("定闹钟"):
+            at, say = alarm.make_alarm(query)
+            if at is not None:
+                reminders.add_alarm(at, say, "alarm")
+                text = alarm.answer(query)
+                print(f"[闹钟] 定上了 {at:%m-%d %H:%M} {say}", flush=True)
+            else:
+                text = alarm.answer(query)
+                print("[闹钟] 没听懂时间，反问", flush=True)
+        return _finish(query, text, "NONE", "本地闹钟")
 
     # 4) 放歌类请求单独走音乐分支：云端给不了音频
     if MUSIC_ENABLE:
