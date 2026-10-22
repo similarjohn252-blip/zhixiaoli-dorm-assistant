@@ -330,13 +330,14 @@ if start_server():
         rec("ticket · 台账可读", "tickets" in tk and "stats" in tk,
             f"{len(tk.get('tickets') or [])} 张 stats={tk.get('stats')}")
 
-        # ⚠️ 2026-10-18 修：上面刚清空过记忆 ✓ → 此时没有房间号 ✗
-        #    而服务端现在会【先追问房间号、不建单】✓（补槽位功能 ✓ 这是正确行为 ✓）
-        #    → 所以要测的「报修带真实工单号」必须先给它一个房间 ✓（更像真实用法 ✓）
+        # ⚠️ 2026-10-22 改：2026-10-19 起报修改成了【指路话术】——不再替你建单 ✗
+        #    所以原来这条"回答里带 BX 工单号"的断言从那天起就不成立了，
+        #    全量闸门因此一直红着。现在改成测指路话术，并顺手守住"不再给工单号"。
         ask_local("/v1/memory", {"text": "用户住 3 栋 502"})
         c = ask_local("/v1/chat", {"query": "我们宿舍的灯坏了，要报修"}).json()
-        rec("ticket · 报修回答带真实工单号", "BX" in (c.get("voice_text") or ""),
-            (c.get("voice_text") or "")[-40:])
+        _txt = c.get("voice_text") or ""
+        rec("ticket · 报修答的是指路话术（2026-10-19 起不建单）",
+            ("知行理工" in _txt) and ("BX" not in _txt), _txt[-40:])
 
         n1 = len(requests.get(LOCAL + "/v1/tickets", timeout=10).json()
                  .get("tickets") or [])
