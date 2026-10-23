@@ -120,34 +120,25 @@ _WEB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "给队友")
 
-# 2026-10-22：队友新交付了含课表的一版（USE_MOCK 已关，走真接口），优先送它；
-# 万一它不在，退回 10-19 那版 —— 至少首页不是 404 ✓
-_WEB_PAGE_CANDIDATES = (
-    os.path.join(_WEB_DIR, "网页_2026-10-22_含课表.html"),
-    os.path.join(_WEB_DIR, "给队友的网页修复版_index.html"),
-)
-
-
-def _web_page():
-    for p in _WEB_PAGE_CANDIDATES:
-        if os.path.exists(p):
-            return p
-    return ""
+# 2026-10-23：**只留队友这一份页面** ✓
+#   他 10-23 交的版本以我 10-22 那版为基准，修了四处真 bug（其中一处会把打码串写回库、覆盖原文）。
+#   → 从此页面归他维护，我这边不再动它；这里只负责把它送出去。
+#   ⚠️ 原来还有"找不到就退回 10-19 旧版"的兜底，已经删掉 ✗ ——
+#      两份并存迟早分叉，而且"服务端送的到底是哪版"没人说得清 ✓
+_WEB_PAGE = os.path.join(_WEB_DIR, "网页_2026-10-22_含课表.html")
 
 
 @app.route("/", methods=["GET"])
 def web_index():
     """送网页首页 ✓ —— 手机/评委打开 http://<服务端地址>:5000/ 就能直接用 ✓"""
-    page = _web_page()
-    if not page:
+    if not os.path.exists(_WEB_PAGE):
         return jsonify({
             "ok": False,
-            "error": "网页文件都不在（给队友/ 下没找到可用页面）",
-            "checked": [os.path.basename(p) for p in _WEB_PAGE_CANDIDATES],
+            "error": "网页文件不在（给队友/网页_2026-10-22_含课表.html）",
             "hint": "API 照常可用：/v1/health  /v1/chat  /v1/board",
         }), 404
     from flask import send_file
-    return send_file(page)
+    return send_file(_WEB_PAGE)
 
 
 # ================= 路由 =================

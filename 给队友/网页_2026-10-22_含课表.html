@@ -70,7 +70,7 @@ body{
 
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
 .addr{color:var(--muted);font-size:12px;margin-top:10px;word-break:break-all;}
-.hint{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.7;}
+.hint{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.7;white-space:pre-line;}
 .msg{font-size:13px;margin-top:8px;}
 .msg.ok{color:var(--ok);}
 .msg.bad{color:var(--bad);}
@@ -498,7 +498,10 @@ async function call(url, opts){
   const j = await readJson(res);
   if (!res.ok) {
     const detail = (j && j.error) ? j.error : (typeof j.raw === "string" ? j.raw.slice(0, 120) : "");
-    throw new Error("后端返回 " + res.status + "：" + detail);
+    const err = new Error("后端返回 " + res.status + "：" + detail);
+    err.status = res.status;   // 让调用方按错误码分支（401 口令 / 409 满了 / 400 太长）
+    err.body = j;
+    throw err;
   }
   return j;
 }
@@ -1465,6 +1468,14 @@ async function pfCall(path, opts){
 
 function pfKindText(k){ return k === "private" ? "只存" : "可用"; }
 
+// 把交接口的三个错误码翻成人话（401 口令 / 409 满了 / 400 太长）
+function pfErrText(e){
+  if (e && e.status === 401) return "口令不对或没填";
+  if (e && e.status === 409) return "档案满了（默认上限 50 条），先删几条再加";
+  if (e && e.status === 400) return (e.body && e.body.error) ? e.body.error : "内容不合要求（一条别超过 60 字）";
+  return (e && e.message) ? e.message : "未知错误";
+}
+
 function pfRender(items){
   const box = el("pfList");
   box.innerHTML = "";
@@ -1485,16 +1496,20 @@ function pfRender(items){
 
     const inp = document.createElement("input");
     inp.type = "text";
-    inp.value = it.shown;              // 默认打码显示
-    inp.dataset.raw = it.text;         // 原文放 dataset，改的时候才用
+    inp.value = (it.shown ?? it.text ?? "");   // 默认打码显示（老服务端没给 shown 就退回原文）
+    inp.dataset.raw = it.text || "";           // 原文放 dataset，改的时候才用
     inp.style.flex = "1 1 220px";
     inp.onfocus = function(){ inp.value = inp.dataset.raw; };   // 聚焦时显示原文
-    inp.onblur = function(){ if (inp.value === inp.dataset.raw) inp.value = it.shown; };
+    inp.onblur = function(){ if (inp.value === inp.dataset.raw) inp.value = it.shown ?? it.text ?? ""; };
 
     const save = document.createElement("button");
     save.className = "ghost sm";
     save.textContent = "保存";
-    save.onclick = function(){ pfUpdate(it.text, inp.value); };
+    save.onclick = function(){
+      // 点按钮会让输入框先失焦、值被换回打码版 → 直接拿它保存会把原文覆盖成打码串
+      if (inp.value === (it.shown ?? it.text ?? "")){ pfMsg("这条没有改动。", "muted"); return; }
+      pfUpdate(it.text, inp.value);
+    };
 
     const del = document.createElement("button");
     del.className = "ghost sm";
@@ -1518,7 +1533,17 @@ async function pfLoad(){
     pfRender(j.items || []);
     pfMsg("口令对了。" + (j.limit ? "上限 " + j.limit + " 条。" : ""), "ok");
   } catch (e){
-    pfMsg("读取失败：" + e.message + (e.status === 401 ? "（口令对不对？）" : ""), "bad");
+    if (e && e.status === 401){
+      // 401 只有两种可能：没填口令 / 口令不对 → 清掉存的，让人重新输
+      pfSetKey("");
+      el("pfKey").value = "";
+      pfSetBadge();
+      el("pfList").innerHTML = "";
+      el("pfCount").textContent = "";
+      pfMsg("口令不对或没填。口令是服务端那台电脑上设的那个；忘了就在那台电脑用 http://127.0.0.1:5000/ 打开本页，点「重置口令」（不需要旧口令）。", "bad");
+      return;
+    }
+    pfMsg("读取失败：" + e.message, "bad");
   }
   pfSetBadge();
 }
@@ -1531,11 +1556,14 @@ async function pfAdd(){
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "add", text: text, kind: el("pfKind").value })
     });
-    if (j.ok === false){ pfMsg(j.error || "没加进去", j.full ? "bad" : "warn"); return; }
+    if (j.ok === false){
+      pfMsg(j.full ? "档案满了（默认上限 50 条），先删几条再加。" : (j.error || "没加进去"), j.full ? "warn" : "bad");
+      return;
+    }
     el("pfNew").value = "";
     pfMsg("加好了。", "ok");
     pfLoad();
-  } catch (e){ pfMsg("添加失败：" + e.message, "bad"); }
+  } catch (e){ pfMsg("没加进去：" + pfErrText(e), "bad"); }
 }
 
 async function pfUpdate(oldText, newText){
@@ -1550,7 +1578,7 @@ async function pfUpdate(oldText, newText){
     if (j.ok === false){ pfMsg(j.error || "没改成", "bad"); return; }
     pfMsg("改好了。", "ok");
     pfLoad();
-  } catch (e){ pfMsg("改失败：" + e.message, "bad"); }
+  } catch (e){ pfMsg("没改成：" + pfErrText(e), "bad"); }
 }
 
 async function pfDelete(text){
@@ -1563,7 +1591,7 @@ async function pfDelete(text){
     if (j.ok === false){ pfMsg(j.error || "没删掉", "bad"); return; }
     pfMsg("删了。", "ok");
     pfLoad();
-  } catch (e){ pfMsg("删失败：" + e.message, "bad"); }
+  } catch (e){ pfMsg("没删掉：" + pfErrText(e), "bad"); }
 }
 
 async function pfClear(){
@@ -1573,9 +1601,13 @@ async function pfClear(){
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "clear" })
     });
+    if (j.ok === false){
+      el("pfClearMsg").textContent = "没清掉：" + (j.error || "未知错误");
+      return;
+    }
     el("pfClearMsg").textContent = "清掉了 " + (j.cleared || 0) + " 条";
     pfLoad();
-  } catch (e){ el("pfClearMsg").textContent = "清空失败：" + e.message; }
+  } catch (e){ el("pfClearMsg").textContent = "没清掉：" + pfErrText(e); }
 }
 
 // 启动时先问状态：设过口令没有、能不能在这台设备上设
@@ -1608,6 +1640,7 @@ async function pfDoSet(){
   const b = (el("pfSet2").value || "").trim();
   const m = el("pfSetMsg");
   if (a !== b){ m.textContent = "两次输的不一样"; m.className = "msg warn"; return; }
+  if (!/^[0-9A-Za-z]{4,8}$/.test(a)){ m.textContent = "口令要 4~8 位数字或字母"; m.className = "msg warn"; return; }
   try {
     const j = await call(api("/v1/profile/key"), {
       method: "POST", headers: { "Content-Type": "application/json" },
