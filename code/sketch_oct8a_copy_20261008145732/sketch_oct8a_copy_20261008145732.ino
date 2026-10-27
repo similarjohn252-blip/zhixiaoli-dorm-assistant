@@ -334,9 +334,19 @@ void loop() {
             oledStatus = "Wi-Fi 没连上";
             oledFoot   = "电脑热点开着吗";
             oledRefresh(true);
-        } else if (audio.isRunning()) {
-            Serial.println("【麦克风】正在播报，等它说完再按");
         } else {
+            // 【打断重说】正在播报时按一下 = 立刻停下，重新听你说（2026-10-27 要求）
+            if (audio.isRunning()) {
+                Serial.println("【打断】停止播报，重新录音");
+                audio.stopSong();
+                // 必须顺手清掉 pendingAudioUrl：它是在"播放结束"那一刻才接上的
+                // （见 loop 里的 wasRunning 分支）—— 不清的话，打断反而会立刻开始放歌 ✗
+                if (pendingAudioUrl != "") {
+                    Serial.println("【打断】顺带取消待播的歌曲");
+                    pendingAudioUrl = "";
+                }
+                delay(80);   // 让解码器把最后一帧吐完，别和新录音抢 I2S
+            }
             listenAndReply();
             lastBtn = digitalRead(BUTTON_PIN);  // 录音/播报期间按键状态可能变了，重新同步
         }
