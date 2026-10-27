@@ -8,8 +8,8 @@
 #include "ESP_I2S.h"       // I2SClass：麦克风改走这个（ESP_SR 只认 I2SClass&）
 #include "ESP_SR.h"        // 语音唤醒（芯片内置 Hi ESP 模型）
 #include "driver/i2s_std.h" // slot/位宽等枚举仍从这里来
-#include <Wire.h>           // SSD1306 走硬件 I2C
-#include <U8g2lib.h>        // OLED 驱动 + 中文字库
+// 2026-10-27：Wire 与 U8g2 一起去掉了（屏幕不要了）。
+//   U8g2 连同 198KB 的 gb2312 中文字体不再被链接 —— 这是让唤醒装得下的关键。
 #include <WebServer.h>      // 给网页一个入口：POST /profile、POST /volume、GET /status
 #include <Preferences.h>    // NVS：把网页设过的音量记住，重启不忘
 
@@ -40,8 +40,9 @@ const char* userId   = DEVICE_USER;
 
 // 引脚与调参见 config.h ✓（工程债 B1 尾巴：原来散在这里，现在集中到一处 ✓）
 // 下面这些是**由配置派生的变量/对象**，不是配置本身 ✓
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA);
-bool   oledReady  = false;
+// 屏幕对象已删（2026-10-27）。下面这些字符串保留：它们现在只喂串口日志，
+//   排障时照样能看到"现在在干嘛、听到什么、回了什么"。
+bool   oledReady  = false;   // 永远是 false —— 让所有"if (oledReady)"的绘制分支自然跳过
 String oledStatus = "启动中";
 String oledHeard  = "";
 String oledReply  = "";
@@ -55,71 +56,25 @@ String conversation_id = "";
 // 放歌时服务端给的第二段音频（先播报、播完自动接着放歌）
 String pendingAudioUrl = "";
 
-// ================= OLED：初始化 + 刷新 =================
-// 初始化时会顺手扫一遍 I2C 总线，把地址打出来 —— 屏幕不亮时一眼看出是"没接上"还是"地址不对"
+// ================= 屏幕：已去掉（2026-10-27）=================
+// 原来的 oledInit() 会扫 I2C 总线、oledRefresh() 会画四行中文 —— 都删了。
+// 省下来的：U8g2 库 + 198KB 的 gb2312 中文字体（实测字体 202,690 字节）。
+// 状态改成打串口：`[状态]` 开头的行就是原来屏幕上那几行。
 bool oledInit() {
-    Wire.begin(OLED_SDA, OLED_SCL);
-    delay(50);
-    uint8_t addr = 0;
-    Serial.print("[OLED] I2C 扫描:");
-    for (uint8_t a = 0x08; a < 0x78; a++) {
-        Wire.beginTransmission(a);
-        if (Wire.endTransmission() == 0) {
-            Serial.printf(" 0x%02X", a);
-            if (!addr) addr = a;
-        }
-    }
-    if (!addr) {
-        Serial.println(" 没找到任何 I2C 设备 —— 检查 GND/VCC/SCL/SDA 四根线");
-        return false;
-    }
-    Serial.println();
-    oled.setI2CAddress(addr << 1);   // U8g2 要的是 8 位地址
-    oled.begin();
-    Serial.printf("[OLED] 初始化完成，地址 0x%02X\n", addr);
-    return true;
+    Serial.println("[屏幕] 已移除（2026-10-27 决定），状态只走串口");
+    return false;
 }
 
-// 内容没变就不重复刷屏（硬件 I2C 刷一屏约 20ms，帮音频任务省点时间）
-// ⚠️ 新加的东西（Wi-Fi 信号 / 音量条）**必须进这个签名** ✗ ——
-//    否则"内容没变就不刷屏"会把它们挡掉，屏幕上永远看不到 ✓
 void oledRefresh(bool force = false) {
-    if (!oledReady) return;
-    bool volVisible = (volBarUntil > 0) && ((long)(millis() - volBarUntil) < 0);
-    int  rssi = (SHOW_WIFI_RSSI && WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
-    String sig = oledStatus + "|" + oledHeard + "|" + oledReply + "|" + oledFoot
-               + "|" + String(volVisible ? (int)audio.getVolume() : -1)
-               + "|" + String(rssi / 10);   // 信号按 10dBm 一档，别因抖动狂刷屏 ✓
-    if (!force && sig == oledLastDrawn) return;
-    oledLastDrawn = sig;
-
-    oled.clearBuffer();
-    oled.setFont(u8g2_font_wqy12_t_gb2312);   // 12px 中文字库（ASCII 也包含在内）
-    oled.drawUTF8(0, 12, oledStatus.c_str());
-    oled.drawUTF8(0, 28, (String(oledStale ? "上次听到: " : "听到: ") + oledHeard).c_str());
-    oled.drawUTF8(0, 44, (String(oledStale ? "上次回复: " : "回复: ") + oledReply).c_str());
-    oled.drawUTF8(0, 60, oledFoot.c_str());
-
-#if SHOW_WIFI_RSSI
-    // 右上角三个信号格 ✓ —— 演示时一眼看出板子还在网上（比翻日志快得多 ✓）
-    if (rssi != 0) {
-        int lv = (rssi > -55) ? 3 : ((rssi > -70) ? 2 : 1);
-        for (int i = 0; i < 3; i++) {
-            int h = 3 + i * 3;
-            int x = 118 + i * 4;
-            if (i < lv) oled.drawBox(x, 12 - h, 3, h);
-            else        oled.drawFrame(x, 12 - h, 3, h);
-        }
-    }
-#endif
-
-    // 音量条：改完音量后在屏幕上留一会儿 ✓（网页上调音量时看得见 ✓）
-    if (volVisible) {
-        int w = (int)((long)audio.getVolume() * 116 / 21);   // 0..21 → 0..116 px
-        oled.drawFrame(5, 52, 118, 8);
-        oled.drawBox(7, 54, w, 4);
-    }
-    oled.sendBuffer();
+    static String last = "";
+    String sig = oledStatus + "|" + oledHeard + "|" + oledReply + "|" + oledFoot;
+    if (!force && sig == last) return;      // 内容没变就不重复打
+    last = sig;
+    Serial.printf("[状态] %s", oledStatus.c_str());
+    if (oledHeard.length()) Serial.printf(" ｜ 听到: %s", oledHeard.c_str());
+    if (oledReply.length()) Serial.printf(" ｜ 回复: %s", oledReply.c_str());
+    if (oledFoot.length())  Serial.printf(" ｜ %s", oledFoot.c_str());
+    Serial.println();
 }
 
 // ================= 主程序入口 =================
@@ -132,6 +87,10 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     Serial.println("--- ESP32-S3 智小理终端启动 ---");
+
+    // 电源灯：一上电就亮，直到断电（唯一的灯，只表示"我通电了"）
+    pinMode(LED_POWER_PIN, OUTPUT);
+    digitalWrite(LED_POWER_PIN, HIGH);
 
     // 把音频库的内部日志/事件接到串口上。
     // 默认它们走 ESP-IDF 的 log_e/log_w，被 Arduino 核心的 Core Debug Level=None 全吞掉了，
@@ -267,26 +226,9 @@ void setup() {
     server.enableCORS(true);   // 允许网页跨源 fetch（否则浏览器会拦掉 POST，板子根本收不到）
     Serial.println("WebServer 已启动，端口 80（已开 CORS）");
 
-    // ---- 开机大字画面：停留一会儿，专门给拍照 / 录视频 ✓ ----
-    // ⚠️ 关于「提示音」✗：这块板子的功放由音频库**独占 I2S**，
-    //    库里没有"直接吹一个音"的接口 ✓ —— 所以用这块大字画面当"开机完成"的视觉提示 ✓
-    //    （想要真"哔"一声，得加一个无源蜂鸣器接到空闲脚，再用 ledcWriteTone ✓ 见 config.h 的引脚说明）
-    if (oledReady) {
-        // ⚠️ 2026-10-15：一开始用 16px 大字，**它一家伙占 309KB flash** ✗（71% → 81%）
-        //    → 换回 12px（与正文同一套字库 ✓ **零额外体积** ✓）
-        //    字号小就用「居中 + 分隔线 + 外框」做出标题感 ✓
-        oled.clearBuffer();
-        oled.setFont(u8g2_font_wqy12_t_gb2312);
-        oled.drawRFrame(1, 1, 126, 62, 4);                    // 外框：一眼看出是"开机页" ✓
-        //     ⚠️ 是 drawRFrame（U8g2 的命名 ✓），不是 drawRoundedFrame ✗（那是别的库 ✓）
-        oled.drawUTF8(46, 22, "智小理");                       // 3 字 × 12px = 36 → 居中 ✓
-        oled.drawHLine(34, 27, 60);                           // 分隔线 ✓
-        oled.drawUTF8(28, 42, "宿舍事务助手");                  // 6 字 = 72 → 居中 ✓
-        oled.drawUTF8(12, 57, ("IP " + WiFi.localIP().toString()).c_str());
-        oled.sendBuffer();
-        delay(BOOT_SPLASH_MS);
-        oledLastDrawn = "";                              // 让下一帧必定重画 ✓
-    }
+    // ---- 开机提示：原来那块大字画面随屏幕一起删了（2026-10-27）----
+    // 现在只打串口 + 电源灯常亮，足够判断"起来了没有"。
+    Serial.printf("【开机】Wi-Fi 已连，IP %s，电源灯常亮\n", WiFi.localIP().toString().c_str());
 
     oledStatus = "待机 按 BOOT 说话";
     oledFoot   = "IP " + WiFi.localIP().toString();
@@ -573,7 +515,7 @@ int micLastPeak = 0;
 //      ① 换小一号的中文字体：gb2312 198 KB → gb2312a 107 KB，省 91 KB（还差 124 KB）
 //      ② 自定义分区表，把 APP 从 3MB 提到 ~3.6MB（模型 3.9MB + SPIFFS 5MB 仍放得下 16MB）
 //    现在 = 0：不链接 ESP_SR，体积回到能装下的水平，固件随时可以烧。
-#define USE_WAKE_WORD 0
+#define USE_WAKE_WORD 1
 
 // 这三个变量在文件前部声明（Arduino 只自动生成函数原型，不生成变量声明，
 // 而 loop() 比这里早 —— 当初放这儿编译报的是 "'wakeRequested' was not declared"）
@@ -1093,18 +1035,14 @@ void checkReminders() {
     }
 }
 
-// ================= 三颗 LED：真实硬件动作（工程债 C2）=================
-// 语义、接线与引脚号都在 config.h 的「三颗 LED」一节 ✓
-// （工程债 B1 尾巴：以前引脚号写在这一行，离麦克风那批有 700 行远 ✗，现在集中到一处 ✓）
+// ================= 电源指示灯：一颗（2026-10-27）=================
+// 用户决定：三色灯不要了，只留一颗指示开关机。
+// 平台的 device_action 照旧会下发，但不再驱动灯光 —— 只在串口留个记录，
+// 这样"平台到底下了什么指令"仍然查得到（排障用），又不用改平台那边。
 void ledSet(const String &action) {
-    // 每次都设一遍 pinMode：幂等、无害，顺便省掉"忘了在 setup 里初始化"的风险 ✓
-    pinMode(LED_GREEN_PIN, OUTPUT);
-    pinMode(LED_BLUE_PIN, OUTPUT);
-    pinMode(LED_RED_PIN, OUTPUT);
-
-    if (action == "PLAY_MUSIC") return;   // 放歌不动灯
-
-    digitalWrite(LED_GREEN_PIN, action == "LED_GREEN_ON" ? HIGH : LOW);
-    digitalWrite(LED_BLUE_PIN,  action == "LED_BLUE_ON"  ? HIGH : LOW);
-    digitalWrite(LED_RED_PIN,   action == "LED_RED_ON"   ? HIGH : LOW);
+    pinMode(LED_POWER_PIN, OUTPUT);
+    digitalWrite(LED_POWER_PIN, HIGH);        // 开机就是亮的 —— 它唯一的职责
+    if (action.length() && action != "NONE" && action != "PLAY_MUSIC") {
+        Serial.println("[灯] 电源灯常亮；平台下发的 " + action + " 不再驱动灯光");
+    }
 }
