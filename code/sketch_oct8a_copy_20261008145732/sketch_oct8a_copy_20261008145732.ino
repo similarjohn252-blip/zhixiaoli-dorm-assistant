@@ -1,9 +1,13 @@
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
+// 2026-10-27 去掉 <WiFiClientSecure.h>：接唤醒后 3MB 的 APP 分区差 214KB 装不下，
+//   而 apiUrl 指向的是我们自己的 http 服务端，那条 https 分支本来就是死代码。
+//   去掉它等于不再链接整个 mbedTLS —— 这是最大的一块省法（实测减了 ~1MB）。
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "Audio.h"          // 音频库：负责从 HTTP 拉音频流 + 解码 + 推 I2S
-#include "driver/i2s_std.h" // 麦克风走独立的 I2S 输入通道（IDF 5.x 新 API）
+#include "ESP_I2S.h"       // I2SClass：麦克风改走这个（ESP_SR 只认 I2SClass&）
+#include "ESP_SR.h"        // 语音唤醒（芯片内置 Hi ESP 模型）
+#include "driver/i2s_std.h" // slot/位宽等枚举仍从这里来
 #include <Wire.h>           // SSD1306 走硬件 I2C
 #include <U8g2lib.h>        // OLED 驱动 + 中文字库
 #include <WebServer.h>      // 给网页一个入口：POST /profile、POST /volume、GET /status
@@ -119,6 +123,11 @@ void oledRefresh(bool force = false) {
 }
 
 // ================= 主程序入口 =================
+// 唤醒状态（定义放前面：loop() 比麦克风那一段早，变量必须先声明）
+static volatile bool wakeRequested = false;   // 事件回调只置标志，重活留给主循环
+static bool wakeWordReady = false;            // 唤醒是否在跑
+static bool wakeWordPaused = false;           // 当前是否被 pause 了
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -174,7 +183,8 @@ void setup() {
 
     // 2. 初始化麦克风（和功放互不干扰的第二个 I2S 通道）
     bool micOk = micInit();
-    Serial.printf("micInit() -> %s   (SCK=IO%d WS=IO%d SD=IO%d, L/R 接 GND)\n",
+    bool wakeOk = micOk && wakeWordInit();   // 唤醒要麦克风先就绪
+    Serial.printf("micInit() -> %s   唤醒 -> %s   (SCK=IO%d WS=IO%d SD=IO%d)\n",
                   micOk ? "OK" : "失败！", MIC_SCK, MIC_WS, MIC_SD);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     if (micOk) Serial.printf("按一下 BOOT 键(IO%d) 就能说话\n", BUTTON_PIN);
@@ -290,6 +300,27 @@ void loop() {
 
     // 【网页入口】非阻塞，尽量放在 audio.loop() 之后，别抢音频喂数据的节奏。
     server.handleClient();
+
+    // 【唤醒】事件回调只置标志；重活放主循环（回调跑在 SR 自己的任务里，
+    //   在那儿做 HTTP 会卡住它的喂数节奏）。
+    if (wakeRequested) {
+        wakeRequested = false;
+        if (audio.isRunning()) {
+            Serial.println("【唤醒】正在播报，这次先不理");
+        } else {
+            oledStatus = "我在";
+            oledFoot   = "听到 Hi ESP";
+            oledRefresh(true);
+            listenAndReply();        // 复用按键那条路 —— 别写第二套流程
+        }
+    }
+
+    // 【唤醒让路】播放期间闭嘴，免得把喇叭声当成唤醒词（播完自动恢复）
+    if (audio.isRunning()) {
+        wakeWordPause();
+    } else {
+        wakeWordResume();
+    }
 
     // 【提醒】3 秒问一次服务端，到点本地播报（2026-10-22）
     // 两个函数内部都做了"正在播报就跳过"，不会抢音频的节奏 ✓
@@ -520,41 +551,102 @@ void handleServerResponse(String response) {
 }
 
 // ================= 麦克风：采集 → 组 WAV → 上传识别 =================
-static i2s_chan_handle_t micHandle = NULL;
+// 2026-10-27：麦克风从 i2s_std 的裸 handle 改成 I2SClass ——
+//   ESP_SR.begin() 收的是 I2SClass&，而 i2s_std 拿的是 handle，两者不能共用一个口。
+//   它和唤醒共用这一路 I2S：唤醒时由 SR 的填充回调读，录音时我们自己读（靠 pause 让路）。
+static I2SClass micI2s;
 // 上一次录音的峰值：留在屏幕上，一眼看出麦克风到底有没有在工作
 int micLastPeak = 0;
 
-bool micInit() {
-    i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
-    chanCfg.auto_clear = true;
-    esp_err_t rc = i2s_new_channel(&chanCfg, NULL, &micHandle);
-    if (rc != ESP_OK) {
-        Serial.printf("【麦克风】i2s_new_channel 失败: %s\n", esp_err_to_name(rc));
-        return false;
-    }
+// 麦克风用的 I2S 槽（L/R 接 GND 为左声道）
+#define MIC_SLOT (MIC_LR_LEFT ? I2S_STD_SLOT_LEFT : I2S_STD_SLOT_RIGHT)
 
-    i2s_std_config_t stdCfg = {
-        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(REC_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
-        .gpio_cfg = {
-            .mclk = I2S_GPIO_UNUSED,
-            .bclk = (gpio_num_t)MIC_SCK,
-            .ws   = (gpio_num_t)MIC_WS,
-            .dout = I2S_GPIO_UNUSED,
-            .din  = (gpio_num_t)MIC_SD,
-            .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false },
-        },
-    };
-#if MIC_LR_LEFT
-    stdCfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;   // L/R 接 GND
-#else
-    stdCfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;  // L/R 接 3V3
+// ================= 语音唤醒（2026-10-27）=================
+// 用的是芯片内置模型，唤醒词 **Hi ESP**（英文）。
+//   ⚠️ 中文唤醒词做不到 ✗ —— 核心预编译库里只有 CONFIG_SR_WN_WN9_HIESP，
+//      中文命令词是 CONFIG_SR_MN_CN_NONE。要中文得从源码重编整个核心，那是天级的活。
+// 我们**只开唤醒、不传命令词**：唤醒之后那句话照旧走录音 → 百度识别 → 平台 → TTS。
+// ⚠️ 2026-10-27 暂停在 0：接上唤醒之后体积超了 3MB APP 分区（3,360,491 / 3,145,728，超 215 KB），
+//    编译到最后一步 ld 报 "text section exceeds available space"。
+//    代码本身是完整的（麦克风已迁到 I2SClass、事件/让路都写了），只是**装不下**。
+//    改回 1 之前必须先腾出 ~215 KB，两条路：
+//      ① 换小一号的中文字体：gb2312 198 KB → gb2312a 107 KB，省 91 KB（还差 124 KB）
+//      ② 自定义分区表，把 APP 从 3MB 提到 ~3.6MB（模型 3.9MB + SPIFFS 5MB 仍放得下 16MB）
+//    现在 = 0：不链接 ESP_SR，体积回到能装下的水平，固件随时可以烧。
+#define USE_WAKE_WORD 0
+
+// 这三个变量在文件前部声明（Arduino 只自动生成函数原型，不生成变量声明，
+// 而 loop() 比这里早 —— 当初放这儿编译报的是 "'wakeRequested' was not declared"）
+
+// SR 的事件回调（跑在 SR 自己的任务里，绝不能在这里做重活）
+void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
+    switch (event) {
+        case SR_EVENT_WAKEWORD:
+            Serial.println("【唤醒】听到 Hi ESP ✓");
+            wakeRequested = true;
+            break;
+        case SR_EVENT_WAKEWORD_CHANNEL:
+            Serial.printf("【唤醒】声道 %d 复核通过 ✓\n", command_id);
+            wakeRequested = true;
+            break;
+        case SR_EVENT_TIMEOUT:
+            Serial.println("【唤醒】超时，回到等待唤醒");
+            ESP_SR.setMode(SR_MODE_WAKEWORD);
+            break;
+        default:
+            Serial.printf("【唤醒】事件 %d（我们不处理）\n", (int)event);
+            break;
+    }
+}
+
+// 让唤醒暂时闭嘴（录音要用麦克风，播放时又怕把喇叭声当成唤醒词）
+void wakeWordPause() {
+#if USE_WAKE_WORD
+    if (wakeWordReady && !wakeWordPaused) {
+        if (ESP_SR.pause()) wakeWordPaused = true;
+    }
 #endif
-    rc = i2s_channel_init_std_mode(micHandle, &stdCfg);
-    if (rc != ESP_OK) {
-        Serial.printf("【麦克风】init_std_mode 失败: %s\n", esp_err_to_name(rc));
+}
+
+void wakeWordResume() {
+#if USE_WAKE_WORD
+    if (wakeWordReady && wakeWordPaused) {
+        if (ESP_SR.resume()) wakeWordPaused = false;
+    }
+#endif
+}
+
+bool wakeWordInit() {
+#if USE_WAKE_WORD
+    ESP_SR.onEvent(onSrEvent);
+    // sr_commands 传 nullptr/0：只要唤醒，不要命令词
+    if (!ESP_SR.begin(micI2s, nullptr, 0, SR_CHANNELS_MONO, SR_MODE_WAKEWORD, "M")) {
+        Serial.println("【唤醒】ESP_SR.begin 失败（分区方案是 esp_sr_16 吗？）");
         return false;
     }
+    wakeWordReady = true;
+    Serial.println("【唤醒】就绪，说 Hi ESP（英文）试试");
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool micInit() {
+    micI2s.setTimeout(1000);
+    // setPins(bclk, ws, dout, din, mclk) —— 麦克风只用到 din，dout 传 -1
+    micI2s.setPins(MIC_SCK, MIC_WS, -1, MIC_SD);
+
+    // 32 位取数：麦克风是 24 位数据放在 32 位槽的高位
+    if (!micI2s.begin(I2S_MODE_STD, REC_SAMPLE_RATE, I2S_DATA_BIT_WIDTH_32BIT,
+                      I2S_SLOT_MODE_MONO, MIC_SLOT)) {
+        Serial.println("【麦克风】I2SClass.begin 失败");
+        return false;
+    }
+    // 再让库直接转成 16 位：它的实现就是 dst[i] = src[i] >> 16，
+    // 与原来手写的右移完全一致（所以音量和静音门限都不用重调）
+    micI2s.configureRX(REC_SAMPLE_RATE, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO,
+                       I2S_RX_TRANSFORM_32_TO_16, MIC_SLOT);
     return true;
 }
 
@@ -578,14 +670,12 @@ uint8_t* recordWav(size_t* outLen) {
     uint8_t* buf = (uint8_t*)ps_malloc(wavCap);   // 优先放 PSRAM（6 秒约 192KB，内部 RAM 放不下）
     if (!buf) buf = (uint8_t*)malloc(wavCap);
     if (!buf) { Serial.println("【录音】内存不足"); return nullptr; }
-    if (i2s_channel_enable(micHandle) != ESP_OK) {
-        free(buf);
-        Serial.println("【录音】麦克风通道打不开");
-        return nullptr;
-    }
+    // 录音期间必须让唤醒让路，否则两个读者抢同一路 I2S，录进来的会是碎片
+    wakeWordPause();
+    micI2s.setTimeout(1000);
 
     int16_t* pcm = (int16_t*)(buf + 44);
-    static int32_t block[256];          // 每次读 256 帧（16ms）
+    static int16_t block[256];          // 每次读 256 帧（16ms，16 位）
     size_t samples = 0;
     bool speechSeen = false;
     uint32_t silenceFrom = 0, lastPrint = 0, t0 = millis();
@@ -596,15 +686,14 @@ uint8_t* recordWav(size_t* outLen) {
 
     size_t readFails = 0, bytesIn = 0;   // 用来区分"读回来是 0 字节"和"读回来一堆 0"
     while (samples < maxSamples) {
-        size_t got = 0;
-        if (i2s_channel_read(micHandle, block, sizeof(block), &got, 1000) != ESP_OK) { readFails++; continue; }
+        // 库已经用 TRANSFORM_32_TO_16 转好了，读回来就是 int16
+        size_t got = micI2s.readBytes((char*)block, sizeof(block));
         bytesIn += got;
 
         int blockPeak = 0;
-        size_t n = got / 4;
+        size_t n = got / 2;
         for (size_t i = 0; i < n && samples < maxSamples; i++) {
-            // 麦克风是 24 位数据放在 32 位槽的高位，右移 16 位得到标准 16 位
-            int32_t s = (block[i] >> 16) * MIC_GAIN;
+            int32_t s = (int32_t)block[i] * MIC_GAIN;
             if (s > 32767) s = 32767; else if (s < -32768) s = -32768;
             pcm[samples++] = (int16_t)s;
             int a = abs((int)s);
@@ -630,7 +719,7 @@ uint8_t* recordWav(size_t* outLen) {
             oledRefresh();
         }
     }
-    i2s_channel_disable(micHandle);   // 录完就关，免得把喇叭的声音又收回来
+    wakeWordResume();                 // 录完把唤醒还回去
 
     size_t pcmBytes = samples * 2;
     writeWavHeader(buf, pcmBytes, REC_SAMPLE_RATE);
@@ -869,14 +958,8 @@ void listenAndReply() {
 void sendToZhiXiaoLi(String userQuery) {
     HTTPClient http;
     static WiFiClient plainClient;
-    static WiFiClientSecure secureClient;
-    secureClient.setInsecure();
-
-    if (String(apiUrl).startsWith("https")) {
-        http.begin(secureClient, apiUrl);
-    } else {
-        http.begin(plainClient, apiUrl);
-    }
+    // 只有 http（我们自己的服务端）。https 那条路连同 mbedTLS 一起去掉了，见文件头的说明。
+    http.begin(plainClient, apiUrl);
 
     http.setTimeout(8000); // 首次 TTS 合成 + 跨网段往返，5 秒有时不够
     http.addHeader("Authorization", String("Bearer ") + apiKey);

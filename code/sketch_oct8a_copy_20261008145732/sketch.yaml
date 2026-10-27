@@ -1,3 +1,5 @@
 ﻿# 板子与编译选项（Arduino IDE 2.x 与 arduino-cli 都会读这个文件）
 # 注意：不要用 profiles: 写法 —— profile 是隔离环境，看不到本机手动安装的库
-default_fqbn: esp32:esp32:esp32s3:UploadSpeed=921600,USBMode=hwcdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,DebugLevel=none,PSRAM=opi
+default_fqbn: esp32:esp32:esp32s3:UploadSpeed=921600,USBMode=hwcdc,FlashSize=16M,PartitionScheme=esp_sr_16,DebugLevel=none,PSRAM=opi
+# 2026-10-27：改 esp_sr_16 —— 语音唤醒要 3.9MB 的 model 分区。
+#   APP 仍是 3MB（够用），原 9MB FAT 变成 6MB SPIFFS（填充语音频以后要放这儿）。
