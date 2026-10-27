@@ -78,6 +78,22 @@ void oledRefresh(bool force = false) {
 }
 
 // ================= 主程序入口 =================
+// 打断重说的两个开关（必须定义在 loop() 之前 —— 它们是在按键分支里用 #if 判断的）
+#define BARGE_ACK            1   // 1 = 打断后先说一句语气词；0 = 直接开始录
+
+// 填充语的时长表与状态 —— 定义在文件后面「填充语」那一段，
+// 但 loop() 里的打断流程要用，所以先声明（它们在那边不能是 static，否则链接属性冲突）
+extern unsigned long fillerHiMs[];
+extern unsigned long fillerFillMs[];
+extern int fillerHiCount;
+extern int fillerFillCount;
+extern unsigned long fillerBusyUntil;
+bool fillerPlay(const char* kind, int idx);
+// ⚠️ 实的开关：填充语的发声目前还是占位实现（只打日志、不出声），
+//    所以此刻"等它说完"等于白等。等板子到了把 fillerPlay() 填上（SPIFFS + audio 库），
+//    把这个改成 1，打断就会真的先说"好的"再听你说。
+#define FILLER_AUDIBLE       0
+
 // 唤醒状态（定义放前面：loop() 比麦克风那一段早，变量必须先声明）
 static volatile bool wakeRequested = false;   // 事件回调只置标志，重活留给主循环
 static bool wakeWordReady = false;            // 唤醒是否在跑
@@ -347,6 +363,29 @@ void loop() {
                 }
                 delay(80);   // 让解码器把最后一帧吐完，别和新录音抢 I2S
             }
+#if BARGE_ACK
+            // 停下之后先应一声，再听你说 —— 让用户知道"它听见你按了"，
+            // 而不是按完一片安静、过了两秒才突然开始录音。
+            // 用「语气词」那几条（好的 / 嗯嗯 / 行 / 好嘞 / 哦好的）：它们本来就是干这个的。
+            if (fillerHiCount > 0) {
+                int h = (int)random(fillerHiCount);
+                if (fillerPlay("hi", h)) {
+                    fillerBusyUntil = millis() + fillerHiMs[h];
+#if FILLER_AUDIBLE
+                    // 真的出声的时候要等它说完（而且这段时间别让唤醒插嘴）
+                    wakeWordPause();
+                    while (millis() < fillerBusyUntil) {
+                        audio.loop();
+                        delay(10);
+                    }
+                    wakeWordResume();
+#else
+                    Serial.printf("【打断】应一声：hi%d（%lu ms，占位不出声）\n",
+                                  h, fillerHiMs[h]);
+#endif
+                }
+            }
+#endif
             listenAndReply();
             lastBtn = digitalRead(BUTTON_PIN);  // 录音/播报期间按键状态可能变了，重新同步
         }
@@ -528,7 +567,7 @@ int micLastPeak = 0;
 #define USE_WAKE_WORD 1
 #define WAKE_PAUSE_SETTLE_MS 40   // pause 之后等多久再读麦克风（原因见 wakeWordPause）
 #define WAKE_DEBOUNCE_MS     1500 // 唤醒连发时只认第一次
-#define WAKE_VERBOSE         1    // 每次重新上岗打一行（演示时留着，看得出它在工作；不想刷屏就改 0）
+#define WAKE_VERBOSE         1
 
 // 这三个变量在文件前部声明（Arduino 只自动生成函数原型，不生成变量声明，
 // 而 loop() 比这里早 —— 当初放这儿编译报的是 "'wakeRequested' was not declared"）
@@ -719,12 +758,12 @@ uint8_t* recordWav(size_t* outLen) {
 
 // 时长表（毫秒）。上板后由 /v1/fillers 的真实值覆盖 —— 现在按实测值写死，
 // 与 tools\填充语时序.py 模拟器用的是同一组数，所以时间线能对得上。
-static unsigned long fillerHiMs[]   = {480, 470, 430, 490, 630};
-static unsigned long fillerFillMs[] = {1220, 1330, 1110};
-static int fillerHiCount   = 5;
-static int fillerFillCount = 3;
+unsigned long fillerHiMs[]   = {480, 470, 430, 490, 630};
+unsigned long fillerFillMs[] = {1220, 1330, 1110};
+int fillerHiCount   = 5;
+int fillerFillCount = 3;
 
-static unsigned long fillerBusyUntil = 0;   // 本句预计播完的时刻
+unsigned long fillerBusyUntil = 0;   // 本句预计播完的时刻
 static int  fillerPlayed = 0;               // 已经说了几句填充语
 
 // 播一句。kind："hi"（语气词）/ "fill"（填充语）。
