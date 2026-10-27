@@ -516,19 +516,26 @@ int micLastPeak = 0;
 //      ② 自定义分区表，把 APP 从 3MB 提到 ~3.6MB（模型 3.9MB + SPIFFS 5MB 仍放得下 16MB）
 //    现在 = 0：不链接 ESP_SR，体积回到能装下的水平，固件随时可以烧。
 #define USE_WAKE_WORD 1
+#define WAKE_PAUSE_SETTLE_MS 40   // pause 之后等多久再读麦克风（原因见 wakeWordPause）
+#define WAKE_DEBOUNCE_MS     1500 // 唤醒连发时只认第一次
+#define WAKE_VERBOSE         1    // 每次重新上岗打一行（演示时留着，看得出它在工作；不想刷屏就改 0）
 
 // 这三个变量在文件前部声明（Arduino 只自动生成函数原型，不生成变量声明，
 // 而 loop() 比这里早 —— 当初放这儿编译报的是 "'wakeRequested' was not declared"）
 
 // SR 的事件回调（跑在 SR 自己的任务里，绝不能在这里做重活）
 void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
+    static unsigned long lastWakeMs = 0;
     switch (event) {
         case SR_EVENT_WAKEWORD:
-            Serial.println("【唤醒】听到 Hi ESP ✓");
-            wakeRequested = true;
-            break;
         case SR_EVENT_WAKEWORD_CHANNEL:
-            Serial.printf("【唤醒】声道 %d 复核通过 ✓\n", command_id);
+            // 同一次唤醒可能连发两个事件（AFE 在相邻两帧都判命中）→ 1.5 秒内只认一次
+            if (lastWakeMs && (millis() - lastWakeMs) < WAKE_DEBOUNCE_MS) {
+                Serial.println("【唤醒】连发，忽略");
+                break;
+            }
+            lastWakeMs = millis();
+            Serial.println("【唤醒】听到 Hi ESP ✓");
             wakeRequested = true;
             break;
         case SR_EVENT_TIMEOUT:
@@ -545,7 +552,14 @@ void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
 void wakeWordPause() {
 #if USE_WAKE_WORD
     if (wakeWordReady && !wakeWordPaused) {
-        if (ESP_SR.pause()) wakeWordPaused = true;
+        if (ESP_SR.pause()) {
+            wakeWordPaused = true;
+            // ⚠️ sr_pause() 只是置了个事件位（esp32-hal-sr.c:452），**不等喂数据任务停** ✗
+            //    它的填充回调此刻可能正卡在 i2s->readBytes() 里 → 立刻自己读会抢数据。
+            //    等一小会儿让它收尾（一个 AFE 帧约 16~32ms，40ms 够）。
+            //    🚧 上板要盯一件事：录音第一个字有没有被切掉；若有，把这个值加到 80。
+            delay(WAKE_PAUSE_SETTLE_MS);
+        }
     }
 #endif
 }
@@ -553,7 +567,14 @@ void wakeWordPause() {
 void wakeWordResume() {
 #if USE_WAKE_WORD
     if (wakeWordReady && wakeWordPaused) {
-        if (ESP_SR.resume()) wakeWordPaused = false;
+        // 唤醒后 AFE 内部会切模式（官方的例子是切到命令词模式）；
+        // 我们只做唤醒，所以每次重新上岗都显式切回 WAKEWORD，
+        // 否则下一次说 Hi ESP 可能没反应。
+        ESP_SR.setMode(SR_MODE_WAKEWORD);
+        if (ESP_SR.resume()) {
+            wakeWordPaused = false;
+            if (WAKE_VERBOSE) Serial.println("【唤醒】重新上岗，等 Hi ESP");
+        }
     }
 #endif
 }
