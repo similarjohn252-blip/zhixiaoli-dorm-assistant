@@ -645,6 +645,165 @@ uint8_t* recordWav(size_t* outLen) {
 }
 
 // 按一下按钮的完整动作：录 → 传 → 播
+// ================= 填充语：松手先说一句，再等答案（2026-10-27）=================
+// 为什么要它：原来一次请求把板子钉死在 http.POST() 里 6~13 秒，等待期间是哑的。
+//   现在改成"受理 + 轮询"，等待期间主循环是自由的，可以说话。
+// 服务端侧：POST /v1/voice?async=1 → {id}；GET /v1/voice/result?id=… → working/done
+#define USE_ASYNC_VOICE   1     // 改成 0 就退回"一次请求拿全部"的老路
+#define FILLER_MAX_FILL   3     // 最多说三句填充语（三条轮完就安静等）
+#define VOICE_POLL_MS     250   // 多久问一次结果
+#define FILLER_GATE_MS    6000  // final 策略：第三句压到这个时刻之后再说
+#define VOICE_DEADLINE_MS 25000 // 总超时
+
+// 时长表（毫秒）。上板后由 /v1/fillers 的真实值覆盖 —— 现在按实测值写死，
+// 与 tools\填充语时序.py 模拟器用的是同一组数，所以时间线能对得上。
+static unsigned long fillerHiMs[]   = {480, 470, 430, 490, 630};
+static unsigned long fillerFillMs[] = {1220, 1330, 1110};
+static int fillerHiCount   = 5;
+static int fillerFillCount = 3;
+
+static unsigned long fillerBusyUntil = 0;   // 本句预计播完的时刻
+static int  fillerPlayed = 0;               // 已经说了几句填充语
+
+// 播一句。kind："hi"（语气词）/ "fill"（填充语）。
+// ⚠️ 这里故意没实现 —— 见文件头的说明，上板实验后再填。
+//    现在返回 true 并按 f表占位时长，让状态机与时间线可以先跑通。
+bool fillerPlay(const char* kind, int idx) {
+    unsigned long ms = 0;
+    if (strcmp(kind, "hi") == 0 && idx >= 0 && idx < fillerHiCount) {
+        ms = fillerHiMs[idx];
+    } else if (strcmp(kind, "fill") == 0 && idx >= 0 && idx < fillerFillCount) {
+        ms = fillerFillMs[idx];
+    } else {
+        return false;
+    }
+    Serial.printf("【填充语】%s #%d，预计 %lu ms（未上板：此处应真的出声）\n",
+                  kind, idx, ms);
+    oledStatus = "在查…";
+    oledRefresh(false);
+    return true;
+}
+
+// 等填充语播完（不打断它）。等待期间也喂一下音频。
+static void fillerWaitIdle() {
+    while (millis() < fillerBusyUntil) {
+        audio.loop();
+        delay(10);
+    }
+}
+
+// 等到答案、说完最后一句话之后再播。返回 true 表示已经处理完（成功或已报错）。
+static bool voiceAsyncAndSpeak(uint8_t* wav, size_t wavLen) {
+    static WiFiClient client;
+    String url = String(voiceUrl) + "?async=1";
+
+    HTTPClient http;
+    http.begin(client, url);
+    http.setTimeout(10000);
+    http.addHeader("Content-Type", "audio/wav; rate=16000");
+
+    oledStatus = "上传中…";
+    oledRefresh(true);
+
+    int code = http.POST(wav, wavLen);
+    if (code != 200) {
+        http.end();
+        Serial.printf("【异步】受理失败 code=%d，退回同步\n", code);
+        return false;                       // 交给老路（同步请求）兜底
+    }
+    String body = http.getString();
+    http.end();
+
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, body)) {
+        Serial.println("【异步】受理返回解不开");
+        return false;
+    }
+    String id = String(doc["id"] | "");
+    if (id.length() == 0) return false;
+    Serial.printf("【异步】受理号 %s\n", id.c_str());
+
+    // ① 松手立刻说一句语气词
+    unsigned long t0 = millis();
+    fillerPlayed = 0;
+    if (fillerHiCount > 0) {
+        int h = (int)(random(fillerHiCount));
+        if (fillerPlay("hi", h)) {
+            fillerBusyUntil = millis() + fillerHiMs[h];
+        }
+    }
+
+    // ② 轮询
+    String resultUrl = serverBase() + "/v1/voice/result?id=" + id;
+    unsigned long lastPoll = 0;
+    unsigned long deadline = millis() + VOICE_DEADLINE_MS;
+
+    while (millis() < deadline) {
+        audio.loop();
+
+        // 上一句说完了；还有句子没说完；策略允许 → 再说一句
+        bool idle = (millis() >= fillerBusyUntil);
+        if (idle && fillerPlayed < FILLER_MAX_FILL && fillerPlayed < fillerFillCount) {
+            bool gateOk = true;
+            if (fillerPlayed >= 2) {        // 第三句：压到 6 秒之后（final 策略）
+                gateOk = (millis() - t0) >= FILLER_GATE_MS;
+            }
+            if (gateOk) {
+                if (fillerPlay("fill", fillerPlayed)) {
+                    fillerBusyUntil = millis() + fillerFillMs[fillerPlayed];
+                    fillerPlayed++;
+                }
+            }
+        }
+
+        // 该问结果了
+        if (millis() - lastPoll >= VOICE_POLL_MS) {
+            lastPoll = millis();
+            HTTPClient q;
+            static WiFiClient qclient;
+            q.begin(qclient, resultUrl);
+            q.setTimeout(3000);
+            q.addHeader("Authorization", String("Bearer ") + apiKey);
+            int qc = q.GET();
+            if (qc == 200) {
+                String jb = q.getString();
+                StaticJsonDocument<2048> jd;
+                if (!deserializeJson(jd, jb)) {
+                    String state = String(jd["state"] | "");
+                    if (state == "done") {
+                        q.end();
+                        // ⚠️ 让当前这句填充语播完再开口 ✗ 硬切听着像卡带（模拟器发现的）
+                        fillerWaitIdle();
+                        handleServerResponse(jb);
+                        return true;
+                    }
+                    if (state == "gone" || state == "error") {
+                        q.end();
+                        Serial.println("【异步】结果丢了或出错：" + jb.substring(0, 160));
+                        oledStatus = "没听清";
+                        oledFoot   = "再说一次试试";
+                        oledStale  = true;
+                        oledRefresh(true);
+                        return true;
+                    }
+                    // working：继续等
+                }
+            } else {
+                Serial.printf("【异步】轮询返回 %d\n", qc);
+            }
+            q.end();
+        }
+        delay(10);
+    }
+
+    Serial.println("【异步】等答案超时");
+    oledStatus = "等太久了";
+    oledFoot   = "网络或平台慢，再试一次";
+    oledStale  = true;
+    oledRefresh(true);
+    return true;
+}
+
 void listenAndReply() {
     size_t wavLen = 0;
     uint8_t* wav = recordWav(&wavLen);
@@ -654,6 +813,15 @@ void listenAndReply() {
         free(wav);
         return;
     }
+
+#if USE_ASYNC_VOICE
+    // 先试异步：等待期间可以说"我查一下"（2026-10-27）
+    if (voiceAsyncAndSpeak(wav, wavLen)) {
+        free(wav);
+        return;
+    }
+    Serial.println("【异步】不可用，走同步那条路");
+#endif
 
     HTTPClient http;
     static WiFiClient plainClient;

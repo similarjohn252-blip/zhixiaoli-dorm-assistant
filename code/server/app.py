@@ -13,13 +13,14 @@
 """
 import os
 import tempfile
+import threading
 import time
 import traceback
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 
-from . import (brain, device, memory, profile_key, remind_audio, reminders,
-               tickets, timetable, trace)
+from . import (brain, device, filler, memory, profile_key, remind_audio,
+               reminders, tickets, timetable, trace)
 
 from .brain import handle_query
 
@@ -51,6 +52,7 @@ app.config["JSON_AS_ASCII"] = False      # 旧写法（新版本会忽略，无�
 #      忘了就在同一台电脑上点「重置口令」，不需要旧口令。
 #      想固定成某个值，就在 .env 设 ZHIXIAOLI_PROFILE_KEY（那时网页上不让改）。
 print(profile_key.banner(), flush=True)
+print(filler.summary_text(), flush=True)
 
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 课表上传 5MB 上限 ✓
 
@@ -163,10 +165,8 @@ def asr_only():
     return jsonify({"ok": True, "text": text, "bytes": len(wav)}), 200
 
 
-@app.route("/v1/voice", methods=["POST"])
-def voice():
-    """ESP32 上传一段录音（16k/单声道/16位 WAV）→ 识别 → 意图 → 合成，一次往返搞定。"""
-    wav = request.get_data()
+def _voice_pipeline(wav):
+    """一段录音 → 识别 → 意图 → 合成。返回该回给板子的 dict（同步/异步共用）。"""
     # 留一份原始录音：麦克风接线不对时，可以在电脑上直接播它，听板子到底录到了什么
     try:
         with open(MIC_LAST_WAV, "wb") as f:
@@ -176,21 +176,102 @@ def voice():
     print(f"[ASR] 收到 {len(wav)} 字节录音，开始识别…", flush=True)
 
     if len(wav) < 2000:
-        return jsonify({"asr_text": "", "voice_text": "没收到声音，检查一下麦克风吧。",
-                        "device_action": "NONE",
-                        "error": "upload too small"}), 200
+        return {"asr_text": "", "voice_text": "没收到声音，检查一下麦克风吧。",
+                "device_action": "NONE", "error": "upload too small"}
 
     try:
         text = baidu_asr(wav)
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"asr_text": "", "voice_text": "识别失败了，你再说一遍好吗？",
-                        "device_action": "NONE", "error": str(e)}), 200
+        return {"asr_text": "", "voice_text": "识别失败了，你再说一遍好吗？",
+                "device_action": "NONE", "error": str(e)}
 
     print(f"[ASR] 识别结果: {text!r}", flush=True)
     result = handle_query(text)
     result["asr_text"] = text
-    return jsonify(result), 200
+    return result
+
+
+# ================= 受理 + 轮询（2026-10-27）=================
+# 为什么做这个：板子按键松手后要说「嗯」「我查一下」，可它现在被一次阻塞请求
+#   钉死在 http.GET() 里 6~13 秒，等待期间是哑的 ✗
+# 改成：立卡回受理号 → 板子每 200ms 问一次 → 等待期间它能一直说话 ✓
+_JOB_TTL = 180.0          # 结果留 3 分钟（板子最多等 20 秒，留足余量）
+_JOB_MAX = 12
+_VOICE_JOBS = {}
+_JOBS_LOCK = threading.Lock()
+
+
+def _jobs_prune():
+    now = time.time()
+    with _JOBS_LOCK:
+        dead = [k for k, v in _VOICE_JOBS.items() if now - v["t"] > _JOB_TTL]
+        for k in dead:
+            _VOICE_JOBS.pop(k, None)
+        if len(_VOICE_JOBS) > _JOB_MAX:          # 兜底：太多就砍最旧的
+            for k in sorted(_VOICE_JOBS, key=lambda x: _VOICE_JOBS[x]["t"])[:-_JOB_MAX]:
+                _VOICE_JOBS.pop(k, None)
+
+
+def _voice_job_run(job_id, wav):
+    try:
+        result = _voice_pipeline(wav)
+        state, payload = "done", result
+    except Exception as e:
+        traceback.print_exc()
+        state, payload = "error", {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    with _JOBS_LOCK:
+        if job_id in _VOICE_JOBS:
+            _VOICE_JOBS[job_id]["state"] = state
+            _VOICE_JOBS[job_id]["result"] = payload
+            _VOICE_JOBS[job_id]["done"] = time.time()
+
+
+@app.route("/v1/voice", methods=["POST"])
+def voice():
+    """ESP32 上传一段录音（16k/单声道/16位 WAV）→ 识别 → 意图 → 合成。
+
+    默认：一次往返搞定（行为与 2026-10-27 之前完全一致 ✓）
+    带 ?async=1：立刻回受理号，去 /v1/voice/result 取结果（板子等待期间可以说话 ✓）
+    """
+    wav = request.get_data()
+    want_async = str(request.args.get("async") or "") in ("1", "true", "yes")
+    if not want_async:
+        return jsonify(_voice_pipeline(wav)), 200
+
+    job_id = f"{int(time.time() * 1000):x}{os.urandom(3).hex()}"
+    with _JOBS_LOCK:
+        _VOICE_JOBS[job_id] = {"t": time.time(), "state": "working",
+                               "result": None, "done": None, "bytes": len(wav)}
+    _jobs_prune()
+    threading.Thread(target=_voice_job_run, args=(job_id, wav), daemon=True).start()
+    print(f"[ASR] 受理 {job_id}（{len(wav)} 字节），后台开始识别 ✓", flush=True)
+    return jsonify({"ok": True, "state": "accepted", "id": job_id,
+                    "poll": f"/v1/voice/result?id={job_id}"}), 200
+
+
+@app.route("/v1/voice/result", methods=["GET"])
+def voice_result():
+    """取异步识别的结果。
+
+    板子的用法：每 200~300ms 问一次，state=working 时继续播填充语，
+    state=done 时字段与同步版完全一样（voice_text / device_action / audio_url …）✓
+    """
+    job_id = str(request.args.get("id") or "")
+    with _JOBS_LOCK:
+        job = _VOICE_JOBS.get(job_id)
+    if not job:
+        return jsonify({"ok": False, "state": "gone",
+                        "error": "没有这个受理号（可能超时了，重说一次）"}), 200
+    elapsed = round(time.time() - job["t"], 2)
+    if job["state"] == "working":
+        return jsonify({"ok": True, "state": "working", "elapsed": elapsed}), 200
+    payload = job["result"] or {}
+    if job["state"] == "error":
+        return jsonify(dict(payload, state="error", elapsed=elapsed)), 200
+    body = dict(payload)
+    body.update({"ok": True, "state": "done", "elapsed": elapsed})
+    return jsonify(body), 200
 
 
 @app.route("/v1/reset", methods=["POST"])
@@ -614,6 +695,29 @@ def alarm_add():
         return jsonify({"ok": False, "error": "时间格式不对，要「YYYY-MM-DD HH:MM」"}), 400
     trace.log("alarm_add", id=nid, at=str(at), say=say[:20])
     return jsonify({"ok": True, "id": nid, "say": say}), 200
+
+
+# ================= 填充语（2026-10-27 新增）=================
+# 用途：板子按键松手后先说一句语气词；答案迟迟不来时轮着说「我查一下」。
+# 板子上电（或第一次要说话前）拉一次这个接口，把 url 里的音频缓存下来，
+# 之后播放完全不依赖网络 —— 关键路径上不能等网络 ✓
+@app.route("/v1/fillers", methods=["GET"])
+def fillers():
+    """列出填充语（缺哪条就现场生成哪条；已生成过的直接返回）。"""
+    try:
+        got = filler.ensure()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"生成失败：{type(e).__name__}"}), 500
+    hi = [x for x in got if x["kind"] == "hi"]
+    fill = [x for x in got if x["kind"] == "fill"]
+    return jsonify({
+        "ok": True,
+        "count": len(got),
+        "hi": hi,          # 语气词：松手立刻播
+        "fill": fill,      # 填充语：答案没到就轮着播
+        "max_fill": len(fill),
+        "note": "url 是相对路径，拼上服务端地址即可；建议上电缓存到本地",
+    }), 200
 
 
 # ================= 用户档案（网页窗口用，2026-10-22 新增）=================
