@@ -7,6 +7,7 @@
 #include "Audio.h"          // 音频库：负责从 HTTP 拉音频流 + 解码 + 推 I2S
 #include "ESP_I2S.h"       // I2SClass：麦克风改走这个（ESP_SR 只认 I2SClass&）
 #include "ESP_SR.h"        // 语音唤醒（芯片内置 Hi ESP 模型）
+#include "esp_partition.h"  // 查 model 分区在不在（2026-10-29 加的防线，见 wakeWordInit）
 #include "driver/i2s_std.h" // slot/位宽等枚举仍从这里来
 // 2026-10-27：Wire 与 U8g2 一起去掉了（屏幕不要了）。
 //   U8g2 连同 198KB 的 gb2312 中文字体不再被链接 —— 这是让唤醒装得下的关键。
@@ -159,8 +160,13 @@ void setup() {
     // 2. 初始化麦克风（和功放互不干扰的第二个 I2S 通道）
     bool micOk = micInit();
     bool wakeOk = micOk && wakeWordInit();   // 唤醒要麦克风先就绪
+    // ⚠️ 2026-10-29 实测踩到的真崩溃 ✗ —— 这行原来有 5 个占位符却只给 4 个参数：
+    //    "唤醒 -> %s" 没有对应实参，于是把 MIC_SCK(=15) 当成 char* 去解引用 →
+    //    Guru Meditation: LoadProhibited，EXCVADDR=0x0f，板子无限重启。
+    //    教训：改 printf 的格式串时，**参数必须一起加** ✗（编译器不报错，只在运行时炸）
     Serial.printf("micInit() -> %s   唤醒 -> %s   (SCK=IO%d WS=IO%d SD=IO%d)\n",
-                  micOk ? "OK" : "失败！", MIC_SCK, MIC_WS, MIC_SD);
+                  micOk ? "OK" : "失败！", wakeOk ? "就绪" : "跳过/失败",
+                  MIC_SCK, MIC_WS, MIC_SD);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     if (micOk) Serial.printf("按一下 BOOT 键(IO%d) 就能说话\n", BUTTON_PIN);
 
@@ -630,6 +636,25 @@ void wakeWordResume() {
 
 bool wakeWordInit() {
 #if USE_WAKE_WORD
+    // ⚠️ 2026-10-29 实测教训（板子上真踩了）✗ ——
+    //    分区方案不是 esp_sr_16 时，**ESP_SR.begin() 不会安全返回**：
+    //    库里的 MODEL_LOADER 先打 "Can not find model in partition table"，
+    //    紧接着空指针崩（Guru Meditation: LoadProhibited）→ **无限重启** ✗，
+    //    板子直接变砖，连按键都不通。
+    //    所以调它之前自己查一遍分区表：没有 model 分区就**跳过唤醒**，
+    //    让板子正常启动、按键那条路照旧能用 ✓（失败要降级，不能连累整机）
+    const esp_partition_t *mp = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "model");
+    if (mp == nullptr) {
+        Serial.println("【唤醒】✗ 分区表里没有 model 分区 —— 跳过唤醒，按键照旧可用");
+        Serial.println("【唤醒】  修法：Tools → Partition Scheme 选 "
+                       "ESP SR 16M (3MB APP/6MB SPIFFS/3.9MB MODEL)，然后整片重烧");
+        Serial.println("【唤醒】  ⚠️ 只烧 app 不够 —— 分区表和 3.19MB 模型都得烧进去");
+        return false;
+    }
+    Serial.printf("【唤醒】model 分区在 0x%06X，%u 字节\n",
+                  (unsigned)mp->address, (unsigned)mp->size);
+
     ESP_SR.onEvent(onSrEvent);
     // sr_commands 传 nullptr/0：只要唤醒，不要命令词
     if (!ESP_SR.begin(micI2s, nullptr, 0, SR_CHANNELS_MONO, SR_MODE_WAKEWORD, "M")) {
