@@ -100,7 +100,7 @@ bool fillerPlay(const char* kind, int idx);
 // ⚠️ 实的开关：填充语的发声目前还是占位实现（只打日志、不出声），
 //    所以此刻"等它说完"等于白等。等板子到了把 fillerPlay() 填上（SPIFFS + audio 库），
 //    把这个改成 1，打断就会真的先说"好的"再听你说。
-#define FILLER_AUDIBLE       0
+#define FILLER_AUDIBLE       1   // 2026-10-29：fillerPlay 已实现，可以真的等它说完
 
 // 唤醒状态（定义放前面：loop() 比麦克风那一段早，变量必须先声明）
 static volatile bool wakeRequested = false;   // 事件回调只置标志，重活留给主循环
@@ -259,6 +259,9 @@ void setup() {
     // 现在只打串口 + 电源灯常亮，足够判断"起来了没有"。
     Serial.printf("【开机】Wi-Fi 已连，IP %s，电源灯常亮\n", WiFi.localIP().toString().c_str());
 
+    // 填充语清单要等 WiFi 通了才取得到（只取 URL 和时长，不下载音频本体）
+    if (wakeOk) fillerFetch();
+
     oledStatus = "待机 按 BOOT 说话";
     oledFoot   = "IP " + WiFi.localIP().toString();
     oledRefresh(true);
@@ -400,7 +403,6 @@ void loop() {
             if (fillerHiCount > 0) {
                 int h = (int)random(fillerHiCount);
                 if (fillerPlay("hi", h)) {
-                    fillerBusyUntil = millis() + fillerHiMs[h];
 #if FILLER_AUDIBLE
                     // 真的出声的时候要等它说完（而且这段时间别让唤醒插嘴）
                     wakeWordPause();
@@ -811,32 +813,91 @@ uint8_t* recordWav(size_t* outLen) {
 #define FILLER_GATE_MS    6000  // final 策略：第三句压到这个时刻之后再说
 #define VOICE_DEADLINE_MS 25000 // 总超时
 
-// 时长表（毫秒）。上板后由 /v1/fillers 的真实值覆盖 —— 现在按实测值写死，
-// 与 tools\填充语时序.py 模拟器用的是同一组数，所以时间线能对得上。
-unsigned long fillerHiMs[]   = {480, 470, 430, 490, 630};
-unsigned long fillerFillMs[] = {1220, 1330, 1110};
+// 填充语的 **URL + 时长** —— 上电时从 /v1/fillers 取（只取清单，不下载音频本体）。
+// 为什么不写死文件名：文案一改，服务端重新生成的文件名里带哈希、会变 ✗；
+// 每次上电重新取，永远不会失配 ✓
+// 下面的时长是"取不到清单时"的兜底值（与 tools\填充语时序.py 模拟器同一组数）。
+#define FILLER_HI_MAX   8
+#define FILLER_FILL_MAX 4
+String fillerHiUrl[FILLER_HI_MAX];
+String fillerFillUrl[FILLER_FILL_MAX];
+unsigned long fillerHiMs[FILLER_HI_MAX]     = {480, 470, 430, 490, 630, 500, 500, 500};
+unsigned long fillerFillMs[FILLER_FILL_MAX] = {1220, 1330, 1110, 1200};
 int fillerHiCount   = 5;
 int fillerFillCount = 3;
 
 unsigned long fillerBusyUntil = 0;   // 本句预计播完的时刻
-static int  fillerPlayed = 0;               // 已经说了几句填充语
+static int  fillerPlayed = 0;        // 已经说了几句填充语
+
+// 上电取一次清单：GET /v1/fillers → 每条 {url, duration}
+void fillerFetch() {
+    HTTPClient http;
+    static WiFiClient client;
+    http.begin(client, serverBase() + "/v1/fillers");
+    http.setTimeout(8000);
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("【填充语】清单拉取失败 %d（填充语不会出声，只按时间占位）\n", code);
+        http.end();
+        return;
+    }
+    String body = http.getString();
+    http.end();
+
+    DynamicJsonDocument doc(3072);
+    if (deserializeJson(doc, body)) {
+        Serial.println("【填充语】清单解不开（不出声，只占位）");
+        return;
+    }
+    String base = serverBase();
+    int hi = 0, fl = 0;
+    for (JsonVariant v : doc["hi"].as<JsonArray>()) {
+        if (hi >= FILLER_HI_MAX) break;
+        String u = String(v["url"] | "");
+        if (!u.length()) continue;
+        fillerHiUrl[hi] = base + u;
+        fillerHiMs[hi]  = (unsigned long)((v["duration"] | 0.0) * 1000.0);
+        hi++;
+    }
+    for (JsonVariant v : doc["fill"].as<JsonArray>()) {
+        if (fl >= FILLER_FILL_MAX) break;
+        String u = String(v["url"] | "");
+        if (!u.length()) continue;
+        fillerFillUrl[fl] = base + u;
+        fillerFillMs[fl]  = (unsigned long)((v["duration"] | 0.0) * 1000.0);
+        fl++;
+    }
+    if (hi) fillerHiCount = hi;
+    if (fl) fillerFillCount = fl;
+    Serial.printf("【填充语】清单就绪：语气词 %d 条、填充语 %d 条%s\n",
+                  hi, fl, (hi && fl) ? "（会出声）" : "（拿不到 URL，只占位）");
+}
 
 // 播一句。kind："hi"（语气词）/ "fill"（填充语）。
-// ⚠️ 这里故意没实现 —— 见文件头的说明，上板实验后再填。
-//    现在返回 true 并按 f表占位时长，让状态机与时间线可以先跑通。
+// 返回 true = 已经开始播（或至少按时间占位），调用方据此决定要不要等它。
 bool fillerPlay(const char* kind, int idx) {
+    const String* url = nullptr;
     unsigned long ms = 0;
     if (strcmp(kind, "hi") == 0 && idx >= 0 && idx < fillerHiCount) {
-        ms = fillerHiMs[idx];
+        url = &fillerHiUrl[idx];
+        ms  = fillerHiMs[idx];
     } else if (strcmp(kind, "fill") == 0 && idx >= 0 && idx < fillerFillCount) {
-        ms = fillerFillMs[idx];
+        url = &fillerFillUrl[idx];
+        ms  = fillerFillMs[idx];
     } else {
         return false;
     }
-    Serial.printf("【填充语】%s #%d，预计 %lu ms（未上板：此处应真的出声）\n",
-                  kind, idx, ms);
-    oledStatus = "在查…";
-    oledRefresh(false);
+    if (audio.isRunning()) return false;          // 别抢正在放的东西
+
+    bool played = false;
+    if (url && url->length()) {
+        played = audio.connecttohost(url->c_str());
+    }
+    Serial.printf("【填充语】%s #%d %lu ms  %s\n", kind, idx, ms,
+                  played ? "出声" : (url && url->length() ? "拉流失败（按时间占位）"
+                                                         : "没有 URL（只占位）"));
+    // 多留 120ms：给拉流起播和尾巴留点余量，免得被答案硬切
+    fillerBusyUntil = millis() + ms + 120;
     return true;
 }
 
@@ -906,7 +967,6 @@ static bool voiceAsyncAndSpeak(uint8_t* wav, size_t wavLen) {
             }
             if (gateOk) {
                 if (fillerPlay("fill", fillerPlayed)) {
-                    fillerBusyUntil = millis() + fillerFillMs[fillerPlayed];
                     fillerPlayed++;
                 }
             }
