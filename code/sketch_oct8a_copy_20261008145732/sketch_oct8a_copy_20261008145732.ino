@@ -810,10 +810,13 @@ uint8_t* recordWav(size_t* outLen) {
 #define USE_ASYNC_VOICE   1     // 改成 0 就退回"一次请求拿全部"的老路
 // 2026-10-29 板上实测反馈：三句连着说显急 ✗ → 改成最多 2 句，且句间至少隔 2 秒，
 //   节奏感靠「留白」来调，不靠把句子念快（语速已改回 0%）。
-#define FILLER_MAX_FILL   2     // 最多说两句填充语（加语气词，全程最多三声）
-#define FILLER_MIN_GAP_MS 1200  // 上一句说完后，至少隔这么久才说下一句（留白，不是拖慢）
-// 6 秒之后不再开口 —— 既保证长等待时还有第二句，又不会撞上答案到达（模拟器算出来的）
-//   gap 1.2s + 收口 6s：1.5s 场景只有语气词；4s 场景一句；7s 场景两句（4.2~5.7s）；都不会拖后答案
+// 2026-10-29 第二轮反馈：「话太密了」→ 再稀疏一档
+//   默认只补一句（语气词 + 一句）；只有等太久（9 秒以上）才允许第二句。
+#define FILLER_MAX_FILL   1        // 默认最多一句填充语（加语气词，共两声）
+#define FILLER_EXTRA_AFTER_MS 9000 // 等超过这么久，才允许再说一句
+#define FILLER_MIN_GAP_MS 2500  // 上一句说完后至少隔这么久才说下一句（稀疏优先）
+// 留白 2.5s 的实际节奏（模拟器算过）：
+//   1.5s 答案：只有「好的」；4s：加一句；7s：还是一句（之后安静）；13s：到 9 秒才补第二句
 #define FILLER_STOP_AFTER_MS 6000
 #define VOICE_POLL_MS     250   // 多久问一次结果
 #define FILLER_GATE_MS    6000  // final 策略：第三句压到这个时刻之后再说
@@ -969,9 +972,10 @@ static bool voiceAsyncAndSpeak(uint8_t* wav, size_t wavLen) {
         // （原来的「第三句压到 6 秒」已被这个留白取代；FILLER_GATE_MS 保留但不再用）
         bool idle  = (millis() >= fillerBusyUntil);
         bool gapOk = (millis() - lastFillerEnd) >= FILLER_MIN_GAP_MS;
-        bool timeOk = (millis() - t0) < FILLER_STOP_AFTER_MS;   // 到点就收口，别撞答案
-        if (idle && gapOk && timeOk
-            && fillerPlayed < FILLER_MAX_FILL && fillerPlayed < fillerFillCount) {
+        // 句数上限：默认 1 句；只有已经等了 9 秒以上，才放开到 2 句
+        int cap = FILLER_MAX_FILL;
+        if (millis() - t0 >= FILLER_EXTRA_AFTER_MS) cap = FILLER_MAX_FILL + 1;
+        if (idle && gapOk && fillerPlayed < cap && fillerPlayed < fillerFillCount) {
             if (fillerPlay("fill", fillerPlayed)) {
                 lastFillerEnd = fillerBusyUntil;
                 fillerPlayed++;
