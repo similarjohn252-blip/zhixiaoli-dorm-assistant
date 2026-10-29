@@ -80,6 +80,13 @@ void oledRefresh(bool force = false) {
 
 // ================= 主程序入口 =================
 // 打断重说的两个开关（必须定义在 loop() 之前 —— 它们是在按键分支里用 #if 判断的）
+// ⚠️ 2026-10-29 又踩了一次同一个坑 ✗ —— 这几个 #define 原来写在文件后面（麦克风那段之后），
+//    而 loop() 里用 #if 判断它们：预处理是按文件顺序走的，**后面的定义对前面的代码不可见** ✗，
+//    未定义 = 0 → 整块代码被静默编译掉（表现是"改了代码、体积一字节没变"）。
+//    所以凡是 loop() 里 #if 用到的，都必须定义在这里（loop 之前）。
+#define USE_WAKE_WORD        1     // 0 = 不链接 ESP_SR（分区不对时救急用）
+#define WAKE_HEARTBEAT_MS    6000  // 每 6 秒打一行"我在等 Hi ESP"，排查用；改 0 关掉
+
 #define BARGE_ACK            1   // 1 = 打断后先说一句语气词；0 = 直接开始录
 
 // 填充语的时长表与状态 —— 定义在文件后面「填充语」那一段，
@@ -285,6 +292,23 @@ void loop() {
     } else {
         wakeWordResume();
     }
+
+#if USE_WAKE_WORD
+    // 【唤醒心跳】每 6 秒说一次"我在等" —— 专门用来排查"喊了没反应"：
+    //   有心跳 = 固件认为唤醒任务在跑（问题在音量/口音/模型）
+    //   没心跳 = 唤醒根本没上岗（问题在初始化或 pause 卡住）
+    static unsigned long lastWakeBeat = 0;
+    if (WAKE_HEARTBEAT_MS && millis() - lastWakeBeat > WAKE_HEARTBEAT_MS) {
+        lastWakeBeat = millis();
+        if (!wakeWordReady) {
+            Serial.println("【唤醒心跳】唤醒没启用（分区/初始化问题）");
+        } else if (wakeWordPaused) {
+            Serial.println("【唤醒心跳】当前被 pause 着（在录音或播报）");
+        } else {
+            Serial.println("【唤醒心跳】我在等 Hi ESP…");
+        }
+    }
+#endif
 
     // 【提醒】3 秒问一次服务端，到点本地播报（2026-10-22）
     // 两个函数内部都做了"正在播报就跳过"，不会抢音频的节奏 ✓
@@ -570,7 +594,6 @@ int micLastPeak = 0;
 //      ① 换小一号的中文字体：gb2312 198 KB → gb2312a 107 KB，省 91 KB（还差 124 KB）
 //      ② 自定义分区表，把 APP 从 3MB 提到 ~3.6MB（模型 3.9MB + SPIFFS 5MB 仍放得下 16MB）
 //    现在 = 0：不链接 ESP_SR，体积回到能装下的水平，固件随时可以烧。
-#define USE_WAKE_WORD 1
 #define WAKE_PAUSE_SETTLE_MS 40   // pause 之后等多久再读麦克风（原因见 wakeWordPause）
 #define WAKE_DEBOUNCE_MS     1500 // 唤醒连发时只认第一次
 #define WAKE_VERBOSE         1
@@ -625,9 +648,16 @@ void wakeWordResume() {
         // 唤醒后 AFE 内部会切模式（官方的例子是切到命令词模式）；
         // 我们只做唤醒，所以每次重新上岗都显式切回 WAKEWORD，
         // 否则下一次说 Hi ESP 可能没反应。
-        ESP_SR.setMode(SR_MODE_WAKEWORD);
+        // ⚠️ 2026-10-29：顺序改成「先 resume、再 setMode」—— pause 期间切模式可能被吞。
+        //
+        // ⚠️⚠️ 2026-10-29 第二次踩坑（板子上表现为"成功一次，后面就不行了"）✗：
+        //     上一版把 wakeWordPaused = false 这一行**改丢了** ✗ →
+        //     resume() 明明成功了，标志却一直是 true →
+        //     心跳一直报「当前被 pause 着」，而且每个循环都去 resume 一次，状态机被搅乱。
+        //     **凡是"设置标志"的代码，改这段必须回头确认标志有没有被清** ✓
         if (ESP_SR.resume()) {
-            wakeWordPaused = false;
+            ESP_SR.setMode(SR_MODE_WAKEWORD);
+            wakeWordPaused = false;          // ← 这一行不能少
             if (WAKE_VERBOSE) Serial.println("【唤醒】重新上岗，等 Hi ESP");
         }
     }
