@@ -249,7 +249,10 @@ def answer(query, now=None):
                 "或者「十秒后提醒我喝水」。")
     at, say = got
     when = describe(at, say, now)
-    return f"好的，{when}提醒你{say}。"
+    # ⚠️ 2026-10-29 板子上听起来别扭：「好的，15 秒后提醒你时间到了。」——
+    #    少了冒号，整句像"提醒你时间到了"连读。加冒号断开：
+    #    「好的，15 秒后提醒你：时间到了。」✓（到点播报的也是这句，一起顺了）
+    return f"好的，{when}提醒你：{say}。"
 
 
 def make_alarm(query, now=None):
