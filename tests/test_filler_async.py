@@ -113,10 +113,39 @@ def test_ensure_regenerates_when_text_changes(audio_dir, monkeypatch):
 
 
 def test_manifest_is_json_on_disk(audio_dir):
+    """清单落盘必须是 JSON，且带上生成本次音频用的语速。
+
+    2026-10-29 改：格式从"纯数组"变成 {"rate":…, "items":[…]}。
+    为什么要记 rate：改了语速如果音频不重生成，会以为"改了没生效"——
+    记下来之后 ensure() 就能发现不匹配、自动重做。
+    """
     filler.ensure(tts_maker=_fake_maker([]))
     data = json.load(open(filler.MANIFEST, encoding="utf-8"))
-    assert isinstance(data, list) and data[0]["kind"] == "hi"
+    assert isinstance(data, dict), "清单应该是 {rate, items} 结构"
+    assert data["rate"] == filler.FILLER_RATE
+    items = data["items"]
+    assert isinstance(items, list) and items
+    assert items[0]["kind"] == "hi"
 
+
+def test_manifest_rate_change_regenerates(audio_dir, monkeypatch):
+    """语速变了 → 已有音频算过期，必须重生成。
+
+    不这么做的话：改了 FILLER_RATE，音频还是旧的，听起来"改了没生效"。
+    """
+    calls = []
+    filler.ensure(tts_maker=_fake_maker(calls))
+    assert len(calls) == len(filler._plan())   # 首次全生成
+
+    calls.clear()
+    filler.ensure(tts_maker=_fake_maker(calls))
+    assert calls == []                               # 语速没变 → 一条都不重做
+
+    monkeypatch.setattr(filler, "FILLER_RATE", filler.FILLER_RATE + 20)
+    calls.clear()
+    filler.ensure(tts_maker=_fake_maker(calls))
+    assert len(calls) == len(filler._plan())    # 语速变了 → 全部重做
+    assert filler.manifest()["rate"] == filler.FILLER_RATE   # 清单跟上新语速
 
 def test_items_empty_before_generate(audio_dir):
     assert filler.items() == []

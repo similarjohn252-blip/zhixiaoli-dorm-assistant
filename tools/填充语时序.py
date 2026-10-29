@@ -45,11 +45,14 @@ def load():
             data = json.load(f)
     except Exception:
         return None
+    # 清单格式：2026-10-29 起是 {"rate":…, "items":[…]}，老的是纯数组
+    if isinstance(data, dict):
+        data = data.get("items") or []
     return ([x for x in data if x.get("kind") == "hi"],
             [x for x in data if x.get("kind") == "fill"])
 
 
-def simulate(hi, fill, answer_at, strategy="burst", gap=2.5, seed=0):
+def simulate(hi, fill, answer_at, strategy="gap", gap=2.0, seed=0, max_fill=None):
     events = []
     t = 0.0
     end = 0.0
@@ -59,10 +62,14 @@ def simulate(hi, fill, answer_at, strategy="burst", gap=2.5, seed=0):
         end = t + h["duration"]
         t = end
 
+    limit = len(fill) if max_fill is None else min(len(fill), max_fill)
     used = 0
     while t < answer_at:
         idle = t >= end
-        want = used < len(fill) and idle
+        want = used < limit and idle
+        # gap 策略 = 固件现在的做法：上一句说完至少隔 gap 秒，最多 max_fill 句
+        if want and strategy == "gap":
+            want = (t - end) >= gap and t < 6.0   # 6 秒后收口（与固件一致）
         if want and strategy == "spread" and used > 0:
             want = (t - end) >= gap
         if want and strategy == "final" and used >= 2:
@@ -108,7 +115,7 @@ def show(events, st, answer_at):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gap", type=float, default=2.5)
+    ap.add_argument("--gap", type=float, default=1.2)
     ap.add_argument("--answer", type=float, default=None)
     args = ap.parse_args()
 
@@ -128,8 +135,8 @@ def main():
 
     for name, ans in scenarios:
         print(f"  === {name}：{ans} 秒拿到答案 ===")
-        for st_name in ("burst", "spread", "final"):
-            ev, st = simulate(hi, fill, ans, strategy=st_name, gap=args.gap)
+        for st_name in ("gap", "burst"):
+            ev, st = simulate(hi, fill, ans, strategy=st_name, gap=args.gap, max_fill=2)
             print(f"     {st_name}：")
             show(ev, st, ans)
         print("")

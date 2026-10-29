@@ -43,11 +43,13 @@ def _env_texts(name, default):
 FILLER_HI_TEXT = _env_texts("ZHIXIAOLI_FILLER_HI", FILLER_HI_TEXT)
 FILLER_FILL_TEXT = _env_texts("ZHIXIAOLI_FILLER_FILL", FILLER_FILL_TEXT)
 
-# 语速（百分比）。+8% 是实测听起来最不拖沓的值
+# 语速（百分比）。
+# 2026-10-29 板上实测：+8% 单听不拖沓，但**连着说三句**就显急 ✗ → 改回 0（正常语速）。
+# 节奏感靠"句子之间留间隔"来调（固件侧的 FILLER_MIN_GAP_MS），不靠把句子念快。
 try:
-    FILLER_RATE = int(os.environ.get("ZHIXIAOLI_FILLER_RATE", "8"))
+    FILLER_RATE = int(os.environ.get("ZHIXIAOLI_FILLER_RATE", "0"))
 except ValueError:
-    FILLER_RATE = 8
+    FILLER_RATE = 0
 
 MANIFEST = os.path.join(AUDIO_DIR, "filler_manifest.json")
 
@@ -151,13 +153,21 @@ def _duration(path):
         return 0.0
 
 
-def items():
-    """读清单（不生成）。给 /v1/fillers 用。"""
+def manifest():
+    """读清单原文 {"rate":…, "items":[…]}; 兼容老格式（直接是数组）。"""
     try:
         with open(MANIFEST, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception:
-        return []
+        return {"rate": None, "items": []}
+    if isinstance(data, list):                 # 老格式
+        return {"rate": None, "items": data}
+    return {"rate": data.get("rate"), "items": data.get("items") or []}
+
+
+def items():
+    """读清单（不生成）。给 /v1/fillers 用。"""
+    return manifest()["items"]
 
 
 def ensure(tts_maker=None, force=False):
@@ -168,14 +178,16 @@ def ensure(tts_maker=None, force=False):
     with _lock:
         maker = tts_maker or _default_tts
         plan = _plan()
-        old = {x["id"]: x for x in items()}
+        man = manifest()
+        old = {x["id"]: x for x in man["items"]}
+        rate_changed = (man["rate"] is not None and man["rate"] != FILLER_RATE)
         out = []
         made = 0
         for item in plan:
             path = item["file"]
             prev = old.get(item["id"])
             fresh = (prev and prev.get("text") == item["text"]
-                     and os.path.exists(path) and not force)
+                     and os.path.exists(path) and not force and not rate_changed)
             if not fresh:
                 try:
                     if os.path.exists(path):
@@ -201,7 +213,10 @@ def ensure(tts_maker=None, force=False):
         try:
             os.makedirs(AUDIO_DIR, exist_ok=True)
             with open(MANIFEST, "w", encoding="utf-8") as f:
-                json.dump(out, f, ensure_ascii=False, indent=1)
+                # rate 也存进去：以后调语速时 ensure() 会发现不匹配并自动重生成
+                # （不存的话改了语速音频却不变，会以为改了没生效）
+                json.dump({"rate": FILLER_RATE, "items": out}, f,
+                          ensure_ascii=False, indent=1)
             # 清掉不再用的旧文件（改了文案之后，上一版的文件会变成孤儿）
             keep = {x["file"] for x in out}
             for fn in os.listdir(AUDIO_DIR):

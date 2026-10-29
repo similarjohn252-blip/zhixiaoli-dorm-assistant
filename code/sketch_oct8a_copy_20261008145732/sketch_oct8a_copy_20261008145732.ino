@@ -808,7 +808,13 @@ uint8_t* recordWav(size_t* outLen) {
 //   现在改成"受理 + 轮询"，等待期间主循环是自由的，可以说话。
 // 服务端侧：POST /v1/voice?async=1 → {id}；GET /v1/voice/result?id=… → working/done
 #define USE_ASYNC_VOICE   1     // 改成 0 就退回"一次请求拿全部"的老路
-#define FILLER_MAX_FILL   3     // 最多说三句填充语（三条轮完就安静等）
+// 2026-10-29 板上实测反馈：三句连着说显急 ✗ → 改成最多 2 句，且句间至少隔 2 秒，
+//   节奏感靠「留白」来调，不靠把句子念快（语速已改回 0%）。
+#define FILLER_MAX_FILL   2     // 最多说两句填充语（加语气词，全程最多三声）
+#define FILLER_MIN_GAP_MS 1200  // 上一句说完后，至少隔这么久才说下一句（留白，不是拖慢）
+// 6 秒之后不再开口 —— 既保证长等待时还有第二句，又不会撞上答案到达（模拟器算出来的）
+//   gap 1.2s + 收口 6s：1.5s 场景只有语气词；4s 场景一句；7s 场景两句（4.2~5.7s）；都不会拖后答案
+#define FILLER_STOP_AFTER_MS 6000
 #define VOICE_POLL_MS     250   // 多久问一次结果
 #define FILLER_GATE_MS    6000  // final 策略：第三句压到这个时刻之后再说
 #define VOICE_DEADLINE_MS 25000 // 总超时
@@ -942,11 +948,12 @@ static bool voiceAsyncAndSpeak(uint8_t* wav, size_t wavLen) {
 
     // ① 松手立刻说一句语气词
     unsigned long t0 = millis();
+    unsigned long lastFillerEnd = 0;     // 上一句什么时候说完（用来算句间留白）
     fillerPlayed = 0;
     if (fillerHiCount > 0) {
         int h = (int)(random(fillerHiCount));
         if (fillerPlay("hi", h)) {
-            fillerBusyUntil = millis() + fillerHiMs[h];
+            lastFillerEnd = fillerBusyUntil;   // fillerPlay 已经设好了 busyUntil
         }
     }
 
@@ -958,17 +965,16 @@ static bool voiceAsyncAndSpeak(uint8_t* wav, size_t wavLen) {
     while (millis() < deadline) {
         audio.loop();
 
-        // 上一句说完了；还有句子没说完；策略允许 → 再说一句
-        bool idle = (millis() >= fillerBusyUntil);
-        if (idle && fillerPlayed < FILLER_MAX_FILL && fillerPlayed < fillerFillCount) {
-            bool gateOk = true;
-            if (fillerPlayed >= 2) {        // 第三句：压到 6 秒之后（final 策略）
-                gateOk = (millis() - t0) >= FILLER_GATE_MS;
-            }
-            if (gateOk) {
-                if (fillerPlay("fill", fillerPlayed)) {
-                    fillerPlayed++;
-                }
+        // 上一句说完了 + 已经留够白 + 还有句子 → 再说一句
+        // （原来的「第三句压到 6 秒」已被这个留白取代；FILLER_GATE_MS 保留但不再用）
+        bool idle  = (millis() >= fillerBusyUntil);
+        bool gapOk = (millis() - lastFillerEnd) >= FILLER_MIN_GAP_MS;
+        bool timeOk = (millis() - t0) < FILLER_STOP_AFTER_MS;   // 到点就收口，别撞答案
+        if (idle && gapOk && timeOk
+            && fillerPlayed < FILLER_MAX_FILL && fillerPlayed < fillerFillCount) {
+            if (fillerPlay("fill", fillerPlayed)) {
+                lastFillerEnd = fillerBusyUntil;
+                fillerPlayed++;
             }
         }
 
