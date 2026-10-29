@@ -20,6 +20,7 @@ import os
 import re
 import threading
 import wave
+import zlib
 
 from .config import AUDIO_DIR
 
@@ -61,9 +62,20 @@ _lock = threading.Lock()
 
 
 def _slug(text):
-    """文件名只用 ASCII：中文文件名在 HTTP 头里会被转义，板子那边不一定认。"""
+    """文件名只用 ASCII：中文文件名在 HTTP 里会被转义，板子那边不一定认。
+
+    ⚠️⚠️ 2026-10-29 实测踩到的真 bug（板子上表现为"填充语一句都不响了"）✗：
+    原来回退用的是 abs(hash(text)) —— **Python 对 str 的 hash 每个进程都不一样**
+    （PYTHONHASHSEED 随机化）。后果是：
+      · 服务端一重启，同一句话的文件名数字就变 → 板子上电取到的 URL 下次必然 404
+      · 服务端自己也每次都算出一个"磁盘上不存在的名字"，于是反复重生成
+        → /v1/fillers 直接 500（板子取不到清单，那就一句都不会响）
+    改成 crc32：**同样的文本永远得到同样的数字**，跨进程、跨重启都稳定 ✓
+    """
     keep = re.sub(r"[^0-9a-zA-Z]", "", text)
-    return keep or str(abs(hash(text)) % 100000)
+    if keep:
+        return keep
+    return str(zlib.crc32(text.encode("utf-8")) % 100000)
 
 
 def _file_for(kind, idx, text):

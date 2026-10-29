@@ -286,3 +286,23 @@ def test_pipeline_error_becomes_error_state(client, monkeypatch):
     final = _wait_done(c, app_mod, jid)
     assert final["state"] == "error"
     assert "模拟崩了" in final["error"]
+
+
+def test_slug_is_stable_across_processes():
+    """文件名里的数字必须跨进程稳定 —— 这条是真 bug 换来的。
+
+    ⚠️ 原来回退用的是 Python 的 hash()，而 str 的 hash **每个进程都不同**
+    （PYTHONHASHSEED 随机化）。后果（2026-10-29 板子上实测）：
+      · 服务端重启 → 同一句话的文件名变了 → 板子手上旧 URL 全 404 → 一句都不响
+      · 服务端自己也总算出"磁盘上没有的名字" → 反复重生成 → /v1/fillers 500
+    """
+    import zlib
+
+    # 同一进程内稳定
+    assert filler._slug("好的") == filler._slug("好的")
+    # 算法钉死成 crc32（换回任何"随机化"的实现都会红）
+    assert filler._slug("好的") == str(zlib.crc32("好的".encode()) % 100000)
+    # 有英文的仍然直接用英文（中文文件名在 HTTP 头里会被转义）
+    assert filler._slug("ok good") == "okgood"
+    # 不同文本不能撞同一个名字
+    assert filler._slug("好的") != filler._slug("嗯嗯")
