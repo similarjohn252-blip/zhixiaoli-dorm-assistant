@@ -157,3 +157,60 @@ def test_brain_does_not_hijack_normal_question(isolated):
     # 「提醒我一下请假流程」不该被当成定闹钟
     text = brain.handle_query("提醒我一下请假流程")["voice_text"]
     assert "几点" not in text
+
+
+# ---------- 2026-10-29 板子上实测出来的两组问题 ----------
+
+@pytest.mark.parametrize("raw,secs", [
+    ("定一个15秒的闹钟。", 15),      # ← 板子上识别出来的原话，当时没解析出来，反问"几点"
+    ("定一个15秒的闹钟", 15),
+    ("十五秒的闹钟", 15),            # 中文数字
+    ("15秒闹钟", 15),                # 没有"的"
+    ("定个20分钟的闹钟", 20 * 60),   # 分钟同理
+    ("半小时的闹钟", 30 * 60),
+    ("一个半小时的闹钟", 90 * 60),
+])
+def test_relative_without_hou(raw, secs):
+    """「X 秒的闹钟」不带"后"也要认 —— 原来只认「X 秒后」，实测漏了。"""
+    got = alarm.parse(raw, now=NOW)
+    assert got is not None, f"没解析出来：{raw}"
+    at, _say = got
+    assert (at - NOW).total_seconds() == secs
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("八点二十分提醒我开会", (8, 20)),   # 回归：曾被当成"20 分钟后"
+    ("20点20分提醒我", (20, 20)),        # 回归：曾被当成"当前时刻"
+    ("八点提醒我开会", (8, 0)),
+])
+def test_clock_time_is_not_mistaken_for_relative(raw, want):
+    """带"点"的是绝对时刻，不能被相对时间抢走。
+
+    ⚠️ 这条是 10-29 放宽松「后」之后立刻暴露的回归：
+       正则能从数字中间开始匹配（"八点二十分"里的"十"、"20点20分"里的第二个"0"）。
+    """
+    got = alarm.parse(raw, now=NOW)
+    assert got is not None
+    at, _say = got
+    assert (at.hour, at.minute) == want
+
+
+@pytest.mark.parametrize("raw", [
+    "半个小时后提醒我",      # 抽出"我"
+    "20点20分提醒我",        # 抽出"我"
+    "提醒我二十三分钟",      # 抽出"二十三分钟"
+])
+def test_say_falls_back_when_nothing_meaningful(raw):
+    """提醒内容只剩代词或只剩时间 → 退回默认的「时间到了」，别念「提醒你：我」。"""
+    got = alarm.parse(raw, now=NOW)
+    assert got is not None
+    _at, say = got
+    assert say == "时间到了"
+
+
+def test_say_still_keeps_real_content():
+    """别为了过滤把真内容也弄丢。"""
+    at, say = alarm.parse("十秒后提醒我喝水", now=NOW)
+    assert say == "喝水"
+    at, say = alarm.parse("二十分钟后提醒我拿快递", now=NOW)
+    assert say == "拿快递"
