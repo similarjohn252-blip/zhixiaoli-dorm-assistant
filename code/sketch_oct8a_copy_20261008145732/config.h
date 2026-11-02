@@ -78,6 +78,6 @@
 //   · 上电会决定启动模式的 strapping 脚：0 / 3 / 45 / 46
 //   推荐：4 / 8 / 9 / 10 / 21 / 47（原来 OLED 用的 47 和 21 现在正好空着）
 #define BUTTON2_ENABLED      1     // 0 = 不用外接按键
-#define BUTTON2_PIN          4     // 换成你实际焊/插的脚
+#define BUTTON2_PIN          21    // 2026-11-02 定了：用 IO21（原来 OLED 的 SDA，已空出来）
 #define BUTTON2_LONGPRESS_MS 3000  // 按住多久算"要重启"
 #define BUTTON2_DEBOUNCE_MS  40    // 消抖（低于这个时长的按下不算）
