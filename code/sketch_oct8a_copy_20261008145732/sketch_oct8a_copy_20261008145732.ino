@@ -7,7 +7,8 @@
 #include "Audio.h"          // 音频库：负责从 HTTP 拉音频流 + 解码 + 推 I2S
 #include "ESP_I2S.h"       // I2SClass：麦克风改走这个（ESP_SR 只认 I2SClass&）
 #include "ESP_SR.h"        // 语音唤醒（芯片内置 Hi ESP 模型）
-#include "esp_partition.h"  // 查 model 分区在不在（2026-10-29 加的防线，见 wakeWordInit）
+#include "esp_partition.h"
+#include "esp_task_wdt.h"  // 看门狗：封盒后死机能自愈  // 查 model 分区在不在（2026-10-29 加的防线，见 wakeWordInit）
 #include "driver/i2s_std.h" // slot/位宽等枚举仍从这里来
 // 2026-10-27：Wire 与 U8g2 一起去掉了（屏幕不要了）。
 //   U8g2 连同 198KB 的 gb2312 中文字体不再被链接 —— 这是让唤醒装得下的关键。
@@ -104,6 +105,10 @@ bool fillerPlay(const char* kind, int idx);
 
 // 唤醒状态（定义放前面：loop() 比麦克风那一段早，变量必须先声明）
 static volatile bool wakeRequested = false;   // 事件回调只置标志，重活留给主循环
+// 【按键替代】盒子封了 BOOT/RESET 之后：
+//   网页/手机打开 http://<板子IP>/listen  = 按一次 BOOT
+//   串口里敲 L 也一样；敲 R 等于按 RESET
+static volatile bool listenRequested = false;
 static bool wakeWordReady = false;            // 唤醒是否在跑
 static bool wakeWordPaused = false;           // 当前是否被 pause 了
 
@@ -135,6 +140,21 @@ void setup() {
         Serial.printf("[AUDIO] %s\n", cur.c_str());
     };
     Serial.println("音频库日志回调已挂载");
+
+    // 看门狗：盒子封了之后没人能按 RESET，死机必须自己重启 ✓
+    // 超时给 60 秒 —— 最长的一段阻塞是"等答案"（25 秒），留足余量
+    // ⚠️ ESP-IDF 5.x 把 esp_task_wdt_init(int, bool) 换成了结构体参数 ✗
+    //    （旧写法编译直接报 "invalid conversion from 'int'"）—— 板子这一代是 5.5。
+    esp_task_wdt_config_t wdtCfg = {};
+    wdtCfg.timeout_ms     = 60000;
+    wdtCfg.idle_core_mask = 0;
+    wdtCfg.trigger_panic  = true;
+    if (esp_task_wdt_init(&wdtCfg) != ESP_OK) {
+        // 已经被别处初始化过（Arduino 核有时会），那就改配置而不是再初始化
+        esp_task_wdt_reconfigure(&wdtCfg);
+    }
+    esp_task_wdt_add(NULL);
+    Serial.println("【看门狗】60 秒不喂就自动重启（封盒后没人按 RESET）");
 
     // 0. 先点亮 OLED，之后所有状态都能在屏幕上看
     oledReady = oledInit();
@@ -175,6 +195,11 @@ void setup() {
                   micOk ? "OK" : "失败！", wakeOk ? "就绪" : "跳过/失败",
                   MIC_SCK, MIC_WS, MIC_SD);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
+#if BUTTON2_ENABLED
+    // 外接按键：内部上拉，按下 = 接地（低电平）
+    pinMode(BUTTON2_PIN, INPUT_PULLUP);
+    Serial.printf("【外键】IO%d 已启用：短按=说一句，长按 3 秒=重启\n", BUTTON2_PIN);
+#endif
     if (micOk) Serial.printf("按一下 BOOT 键(IO%d) 就能说话\n", BUTTON_PIN);
 
     // 3. 连接 Wi-Fi
@@ -251,6 +276,34 @@ void setup() {
     server.on("/volume", HTTP_OPTIONS, []() {
         server.send(200, "application/json", "{}");
     });
+    // ===== 按键替代：网页/手机可触发的两个动作（2026-11-02）=====
+    // 为什么要它：板子装进盒子后 BOOT 和 RESET 按不到 ✗，
+    //   而演示时"网络是通的"，所以用 HTTP 当作按键最省事 ✓
+    server.on("/listen", HTTP_GET, []() {
+        listenRequested = true;          // 重活留主循环（WebServer 回调里不能长时间阻塞）
+        server.send(200, "application/json", "{\"ok\":true,\"action\":\"listen\"}");
+        Serial.println("【网页】收到 /listen → 开始听你说");
+    });
+    server.on("/restart", HTTP_GET, []() {
+        server.send(200, "application/json", "{\"ok\":true,\"action\":\"restart\"}");
+        Serial.println("【网页】收到 /restart → 重启");
+        delay(300);                      // 先把 HTTP 响应发出去
+        ESP.restart();
+    });
+    // 板子自己的小控制页：手机浏览器打开 http://<板子IP>/ 就能看见两个按钮
+    server.on("/", HTTP_GET, []() {
+        server.send(200, "text/html; charset=utf-8",
+            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<title>\u667a\u5c0f\u7406\u00b7\u677f\u5b50</title>"
+            "<style>body{font-family:system-ui;background:#111;color:#eee;text-align:center;"
+            "padding:24px}a{display:block;margin:16px auto;padding:22px;max-width:320px;"
+            "border-radius:14px;background:#2d6cdf;color:#fff;text-decoration:none;font-size:20px}"
+            "a.g{background:#444}</style>"
+            "<h2>\u667a\u5c0f\u7406\u00b7\u677f\u5b50</h2>"
+            "<a href='/listen'>\u8bf4\u4e00\u53e5\uff08\u4ee3\u66ff BOOT\uff09</a>"
+            "<a class=g href='/restart'>\u91cd\u542f\uff08\u4ee3\u66ff RESET\uff09</a>"
+            "<p style='color:#888;font-size:13px'>\u4e5f\u53ef\u4ee5\u76f4\u63a5\u8bf4 Hi ESP</p>");
+    });
     server.begin();
     server.enableCORS(true);   // 允许网页跨源 fetch（否则浏览器会拦掉 POST，板子根本收不到）
     Serial.println("WebServer 已启动，端口 80（已开 CORS）");
@@ -267,6 +320,44 @@ void setup() {
     oledRefresh(true);
 }
 
+// 外接按键轮询：短按 = 说一句，长按 = 重启。
+// 为什么要"松开才触发"：长按要重启，如果按下就触发，长按会先开始录音再重启，很乱。
+// 电源灯闪一下是唯一的即时反馈 —— 盒子封了之后看不见别的东西。
+void extraButtonPoll() {
+#if BUTTON2_ENABLED
+    static bool last = false;
+    static unsigned long pressAt = 0;
+    bool now = (digitalRead(BUTTON2_PIN) == LOW);   // 内部上拉 + 按下接地
+
+    if (now && !last) {                  // 按下
+        pressAt = millis();
+        digitalWrite(LED_POWER_PIN, LOW);        // 亮一下（反着接的话这里改 HIGH）
+    }
+    if (now && pressAt && (millis() - pressAt) >= BUTTON2_LONGPRESS_MS) {
+        Serial.println("【外键】长按到了 → 重启（替代 RESET）");
+        digitalWrite(LED_POWER_PIN, HIGH);
+        delay(120);
+        ESP.restart();
+    }
+    if (!now && last) {                  // 松开
+        digitalWrite(LED_POWER_PIN, HIGH);       // 恢复常亮
+        unsigned long held = millis() - pressAt;
+        pressAt = 0;
+        if (held >= BUTTON2_DEBOUNCE_MS) {
+            Serial.printf("【外键】短按 %lu ms → 听你说\n", held);
+            // 播报中按下 = 打断重说（和 BOOT 键行为一致）
+            if (audio.isRunning()) {
+                audio.stopSong();
+                if (pendingAudioUrl != "") pendingAudioUrl = "";
+                delay(80);
+            }
+            listenRequested = true;
+        }
+    }
+    last = now;
+#endif
+}
+
 void loop() {
     // 【核心】必须一直、尽快地调用 audio.loop()，否则网络音频会卡顿/断续。
     // 原来这里写 delay(15000)，等于每 15 秒把喂音频数据的节奏一起卡死，所以改成非阻塞计时。
@@ -275,8 +366,33 @@ void loop() {
     // 【网页入口】非阻塞，尽量放在 audio.loop() 之后，别抢音频喂数据的节奏。
     server.handleClient();
 
+    // 【按键替代】串口命令：L = 听一句，R = 重启（排练时不用碰板子）
+    while (Serial.available()) {
+        int ch = Serial.read();
+        if (ch == 'L' || ch == 'l') { listenRequested = true; }
+        else if (ch == 'R' || ch == 'r') {
+            Serial.println("【串口】R → 重启");
+            delay(100);
+            ESP.restart();
+        }
+    }
+    extraButtonPoll();      // 外接实体按键（BOOT/RESET 的替代）
+    esp_task_wdt_reset();   // 喂狗：主循环活着就说明没死
+
     // 【唤醒】事件回调只置标志；重活放主循环（回调跑在 SR 自己的任务里，
     //   在那儿做 HTTP 会卡住它的喂数节奏）。
+    // 【按键替代】网页点「说一句」= 按一次 BOOT（播报中就打断重说，和按键行为一致）
+    if (listenRequested) {
+        listenRequested = false;
+        if (audio.isRunning()) {
+            audio.stopSong();
+            if (pendingAudioUrl != "") pendingAudioUrl = "";
+            delay(80);
+        }
+        Serial.println("【网页】开始听");
+        listenAndReply();
+    }
+
     if (wakeRequested) {
         wakeRequested = false;
         if (audio.isRunning()) {
