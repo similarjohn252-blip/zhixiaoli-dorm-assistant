@@ -234,3 +234,41 @@ def test_weather_other_city_is_refused(monkeypatch):
     vt = r["voice_text"]
     assert "只查得到重庆" in vt, vt
     assert "多云" not in vt, vt
+
+
+# ---------- 平台答复解析（2026-11-04 加）----------
+
+def test_parse_cloud_answer_four_formats():
+    """平台答复的四种回法都要能解。
+
+    为什么加这条：平台页面是评委能直接打开的入口，原来只输出纯 JSON，评委看到一团
+    大括号 ✗ → 提示词改成"第一行人话 + 第二行 JSON"。这次改动必须保证服务端解析
+    不受影响，否则板子会把 JSON 念出来。
+    """
+    from server.brain import parse_cloud_answer
+
+    j = '{"voice_text":"好的，已经帮你登记报修啦。","device_action":"LED_GREEN_ON"}'
+
+    # ① 纯 JSON（历史行为，必须还能用）
+    assert parse_cloud_answer(j) == ("好的，已经帮你登记报修啦。", "LED_GREEN_ON")
+
+    # ② 人话 + 换行 + JSON（2026-11-04 起平台的新格式）
+    two_line = "好的，已经帮你登记报修啦。\n" + j
+    assert parse_cloud_answer(two_line) == ("好的，已经帮你登记报修啦。", "LED_GREEN_ON")
+
+    # ③ 人话 + Markdown 代码块包着 JSON（模型偶尔自己加）
+    fenced = "好的，已经帮你登记报修啦。\n```json\n" + j + "\n```"
+    assert parse_cloud_answer(fenced) == ("好的，已经帮你登记报修啦。", "LED_GREEN_ON")
+
+    # ④ 只有人话（没 JSON）→ 整段当答案，动作 NONE
+    assert parse_cloud_answer("好的，已经帮你登记报修啦。") == ("好的，已经帮你登记报修啦。", "NONE")
+
+
+def test_parse_cloud_answer_strips_think():
+    """平台偶尔吐出来的 <think> 推理过程不能被念出来。"""
+    from server.brain import parse_cloud_answer
+
+    text = "好的。\n" + '{"voice_text":"好的。","device_action":"NONE"}'
+    voice, action = parse_cloud_answer(text)
+    assert voice == "好的。"
+    assert action == "NONE"

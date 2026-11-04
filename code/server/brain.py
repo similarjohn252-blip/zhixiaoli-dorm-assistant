@@ -108,7 +108,20 @@ def _cloud_request(query, conv_id):
     print(f"[云端] {dt:.1f}s 会话={'有' if conv_id else '无'} "
           f"答复={answer[:120]!r}", flush=True)
 
-    # 平台约定：答复的最后是一个 JSON {"voice_text": "...", "device_action": "..."}
+    return parse_cloud_answer(answer)
+
+
+def parse_cloud_answer(answer):
+    """从平台答复里取出 (要念的话, 动作)。四种回法都得能解 ✓
+
+    平台现在（2026-11-04 起）的约定是"第一行人话 + 第二行 JSON"，
+    但历史上它只要纯 JSON；而且模型偶尔会自己加代码块或干脆不输出 JSON。
+    所以这里不按位置解，**取全文里最后一个 {…}**：
+      · 纯 JSON                    → 正常解
+      · 人话 + 换行 + JSON         → 解到 JSON（人话给评委看，JSON 给我们）
+      · 人话 + ```json 代码块      → 照样能解
+      · 只有人话                   → 整段当答案念（动作 NONE）
+    """
     voice_text, action = "", "NONE"
     s, e = answer.rfind("{"), answer.rfind("}")
     if 0 <= s < e:
