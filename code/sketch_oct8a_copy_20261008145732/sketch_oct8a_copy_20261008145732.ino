@@ -149,9 +149,10 @@ void setup() {
     wdtCfg.timeout_ms     = 60000;
     wdtCfg.idle_core_mask = 0;
     wdtCfg.trigger_panic  = true;
-    if (esp_task_wdt_init(&wdtCfg) != ESP_OK) {
-        // 已经被别处初始化过（Arduino 核有时会），那就改配置而不是再初始化
-        esp_task_wdt_reconfigure(&wdtCfg);
+    // 先 reconfigure：Arduino 核通常已经初始化过 TWDT，
+    // 这时候再 init 会打一行红色的 "TWDT already initialized"（无害但吓人）✗
+    if (esp_task_wdt_reconfigure(&wdtCfg) != ESP_OK) {
+        esp_task_wdt_init(&wdtCfg);      // 没初始化过才走这条
     }
     esp_task_wdt_add(NULL);
     Serial.println("【看门狗】60 秒不喂就自动重启（封盒后没人按 RESET）");
