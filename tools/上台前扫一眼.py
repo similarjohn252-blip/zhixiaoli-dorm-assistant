@@ -8,7 +8,7 @@
 
 四项检查：
  ① 服务端活着吗（/v1/health 版本号）
- ② 板子在线吗（/v1/board）
+ ② 板子在线吗（/v1/board）＋ 热点在不在 ＋ 板子是不是封盒版固件 ＋ 填充语清单
  ③ 四个固定话术（报修 / 请假 / 报修进度 / 自习室）—— 全在本地，平台挂了也照样答
  ④ 平台通不通（问一句校训）—— 这一条通，说明知识库、时间、天气三个工具都活着
 
@@ -59,15 +59,50 @@ def main():
         print("\n  服务端都没起来，后面不用测了：cd E:\\天翼\\code && E:\\Python\\python.exe run.py")
         return 2
 
-    # ② 板子
+    # ② 板子（2026-11-04 更新：板子没有屏幕了，判据改成 HTTP）
+    board_ip = "192.168.137.39"
     try:
         b = call("/v1/board", timeout=8)
         if b.get("online"):
             say(True, "板子", "在线，音量 " + str(b.get("volume")))
         else:
-            say(False, "板子", "离线（连热点、看板子屏幕的 IP）")
+            say(False, "板子", "离线 —— 先看电脑「移动热点」是不是开着（睡眠会自动关），"
+                               "再看串口打出来的 IP")
     except Exception as e:
         say(False, "板子", type(e).__name__)
+
+    # ②b 热点在不在（板子配的是固定 IP 192.168.137.39，没热点它就连不上）
+    try:
+        import socket
+        s = socket.socket()
+        s.settimeout(1)
+        s.bind(("192.168.137.1", 0))
+        s.close()
+        say(True, "移动热点", "192.168.137.1 在")
+    except Exception:
+        say(False, "移动热点", "没有 192.168.137.1 —— 电脑热点关着或睡眠了（板子必然离线）")
+
+    # ②c 板子上跑的是不是"封盒版"固件：有 /listen 就说明是
+    def board_get(path, timeout=5):
+        import urllib.request
+        with urllib.request.urlopen(f"http://{board_ip}{path}", timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+
+    try:
+        st, body = board_get("/listen")
+        ok = (st == 200 and "listen" in body)
+        say(ok, "外接按键固件", "/listen 可用（=封盒版固件，含看门狗）" if ok else f"/listen 返回 {st}")
+    except Exception as e:
+        say(False, "外接按键固件", f"{type(e).__name__} —— 可能烧的还是旧固件（没有 /listen）")
+
+    # ②d 填充语清单（条数 = 0 就说明等待时不会说话）
+    try:
+        f = call("/v1/fillers", timeout=25)
+        hi, fl = len(f.get("hi") or []), len(f.get("fill") or [])
+        say(hi > 0 and fl > 0, "填充语", f"语气词 {hi} 条、填充语 {fl} 条"
+            + ("" if hi and fl else " —— 板子取不到清单就不会出声"))
+    except Exception as e:
+        say(False, "填充语", type(e).__name__)
 
     # ③ 四个固定话术（本地，平台挂了也不影响）
     fixed = [
