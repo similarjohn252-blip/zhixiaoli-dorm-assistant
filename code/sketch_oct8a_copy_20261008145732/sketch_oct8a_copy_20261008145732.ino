@@ -201,7 +201,7 @@ void setup() {
     pinMode(BUTTON2_PIN, INPUT_PULLUP);
     Serial.printf("【外键】IO%d 已启用：短按=说一句，长按 3 秒=重启\n", BUTTON2_PIN);
 #endif
-    if (micOk) Serial.printf("按一下 BOOT 键(IO%d) 就能说话\n", BUTTON_PIN);
+    if (micOk) Serial.printf("说话有两种叫醒方式：说 Hi ESP，或短按外接按键 IO%d（板载 BOOT 在盒子里，按不到了）\n", BUTTON2_PIN);
 
     // 3. 连接 Wi-Fi
     //    注意：这里会一直等下去，一整块日志里只有一串点就等于"卡在这一步"，后面的代码一行都没跑。
@@ -316,7 +316,7 @@ void setup() {
     // 填充语清单要等 WiFi 通了才取得到（只取 URL 和时长，不下载音频本体）
     if (wakeOk) fillerFetch();
 
-    oledStatus = "待机 按 BOOT 说话";
+    oledStatus = "待机 说 Hi ESP 或按外接按键";
     oledFoot   = "IP " + WiFi.localIP().toString();
     oledRefresh(true);
 }
@@ -468,7 +468,7 @@ void loop() {
             Serial.printf("connecttohost() -> %s\n", ok ? "OK" : "失败（网络/解码器问题）");
             oledStatus = ok ? "放歌中…" : "放歌失败";
         } else {
-            oledStatus = "待机 按 BOOT 说话";
+            oledStatus = "待机 说 Hi ESP 或按外接按键";
         }
         oledRefresh(true);
     }
