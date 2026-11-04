@@ -32,14 +32,16 @@
 ## 三步跑起来（约 10 分钟）
 
 > 前置：Windows ＋ Python（本项目用 `E:\Python\python.exe`）＋ 能上校园网
-> **换一台干净电脑也能照这个走**（本项目专门为它写了 `tools\检查依赖.py`）
+> **换一台干净电脑也能照这个走** （本项目专门为它写了 `tools\检查依赖.py`）
 
 ### 第 1 步 · 装依赖
 
 ```powershell
 cd E:\天翼
 E:\Python\python.exe -m pip install -r requirements.txt
-```（版本已**精确锁定** —— 装完想核对：`E:\Python\python.exe tools\检查依赖.py`）
+```
+
+（版本已**精确锁定** —— 装完想核对：`E:\Python\python.exe tools\检查依赖.py`）
 
 ### 第 2 步 · 配好 `.env`（**只有这一步需要你填东西**）
 
@@ -56,7 +58,7 @@ notepad .env
 | `BAIDU_API_KEY` / `BAIDU_SECRET_KEY` | 百度智能云 → 语音技术 → 应用管理 |
 | `ZHIXIAOLI_CLOUD_KEY` | 智小理平台后台 → 应用 → API 密钥 |
 
-> `.env` 已被 `.gitignore` 排除 **绝不会进仓库**（项目还装了提交前护栏，见下）
+> `.env` 已被 `.gitignore` 排除 **绝不会进仓库** （项目还装了提交前护栏，见下）
 
 ### 第 3 步 · 启动
 
@@ -70,7 +72,7 @@ E:\Python\python.exe code\run.py
 监听: 0.0.0.0:5000  （ESP32 下载地址 http://<你的地址>:5000/audio/...）
 ```
 
-- **这个窗口要一直开着**（关掉 = 板子和网页都连不上）
+- **这个窗口要一直开着** （关掉 = 板子和网页都连不上）
 - 它会先做一次**启动自检**：缺配置会一次列全、端口被占会告诉你怎么查
 - 验证：浏览器打开 `http://127.0.0.1:5000/v1/health` → 看到 JSON 就是通了
 
@@ -89,9 +91,10 @@ E:\Python\python.exe 全量测试.py
 2. **固件配置**：复制 `code\sketch_oct8a_copy_20261008145732\secrets.example.h` → `secrets.h`，填 Wi-Fi 与服务端地址
 3. **烧录**：⚠️ **必须整片烧**（含分区表和 3.19MB 唤醒模型），而且 IDE 的「分区方案」菜单要手动选 `ESP SR 16M` —— 它不读 `sketch.yaml`。最稳的命令见
    **[板子到手后做什么.md](板子到手后做什么.md)** 第 1 步（附「五条烧写记录」的核对清单）
-4. **验证**：说 `Hi ESP` 或按一下外接按键再说一句 → **串口**出现 `[状态] …｜听到: …｜回复: …`、喇叭出声 = 全链路正常（2026-10-27 起没有屏幕了，状态一律看串口；详见 `板子到手后做什么.md`）
+4. **验证**：说 `Hi ESP` 或按一下外接按键再说一句 → **串口**出现 `[状态] …｜听到: …｜回复: …`、喇叭出声 = 全链路正常
+   （2026-10-27 起没有屏幕了，状态一律看串口；详见 `板子到手后做什么.md`）
 
-> 板子不在身边时，**服务端照样能跑**（网络接口全部可用，只是设备类接口会返回 `online:false`）
+> 板子不在身边时，**服务端照样能跑** （网络接口全部可用，只是设备类接口会返回 `online:false`）
 
 ---
 
@@ -140,7 +143,7 @@ code\
     preflight.py        启动前自检（fail-fast）
   sketch_oct8a_copy_20261008145732\   固件（.ino + config.h 硬件调参 + secrets.h 网络密钥 + sketch.yaml）
 tools\                  自测 / 诊断 / 维护脚本（27 个，含清理生成物.py / 固件备份.py / 回滚固件.py）
-tests\                  pytest 快测试层（250 项，约 5 秒，不联网）
+tests\                  pytest 快测试层（250 项 约 5 秒 不联网）
 _材料\                  赛题原始材料（PDF 提取文本、手册、选题方向）
 语音\                   运行时产物：播报音频、最近录音、放歌缓存、日志（已 gitignore）
 ```
@@ -149,8 +152,8 @@ _材料\                  赛题原始材料（PDF 提取文本、手册、选�
 
 | 命令 | 查什么 |
 |---|---|
-| `E:\Python\python.exe tools\全量闸门.py` ⭐ | **一条命令跑完下面全部**（`--fast` 跳过慢项、`--deploy` 加部署自检）；**一次报全、不早停** |
-| `E:\Python\python.exe -m pytest tests -q` | **快测试层**（250 项，约 5 秒，不联网）—— 先装：`pip install -r requirements-dev.txt` |
+| `E:\Python\python.exe tools\全量闸门.py` ⭐ | **一条命令跑完下面全部** （`--fast` 跳过慢项、`--deploy` 加部署自检）；**一次报全、不早停** |
+| `E:\Python\python.exe -m pytest tests -q` | **快测试层**（250 项 约 5 秒 不联网）—— 先装：`pip install -r requirements-dev.txt` |
 | `E:\Python\python.exe 全量测试.py` | **主门禁**：平台 A 组 + 本地服务端 B 组 + 固件编译（含"老接口字段未变"的兼容性护栏）|
 | `E:\Python\python.exe 平台端测试.py` | 只测平台 13 项（不启动服务、不写文件）|
 | `E:\Python\python.exe tools\检查依赖.py` | 依赖版本 12 项（Python + 固件库 + **内容指纹** + 核心）|
@@ -179,5 +182,5 @@ git config core.hooksPath .githooks
 
 ## 许可与素材
 
-- 放歌走 **iTunes 官方 30 秒试听**（不是完整歌曲、不是盗链）
+- 放歌走 **iTunes 官方 30 秒试听** （不是完整歌曲、不是盗链）
 - 语音识别/合成走**百度智能云**、问答走**校园智小理平台** —— 数据边界见 [隐私与数据边界.md](隐私与数据边界.md)
