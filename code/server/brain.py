@@ -15,7 +15,7 @@ from .config import (
     BRAIN, CLOUD_INPUT_MAX, CLOUD_KEY, CLOUD_MULTITURN, CLOUD_TIMEOUT,
     CLOUD_URL, CLOUD_USER, CLOUD_VERIFY,
 )
-from . import alarm, reminders, trace, weather
+from . import alarm, course_qa, reminders, trace, weather
 from .music import MUSIC_ENABLE, handle_music, make_tts, music_request
 
 # ================= 大脑 1：智小理平台（Dify 接口） =================
@@ -458,6 +458,14 @@ def handle_query(query):
             print(f"[天气] 高德: {text}", flush=True)
             return _finish(query, text, "NONE", "本地天气·高德")
         print("[天气] 高德没取到，交给后面的兜底", flush=True)
+
+    # 3.82) 课表问答 → 本地算（2026-11-06 ✓ 课表在提醒.db，平台不知道 ✓ 0 延迟）
+    #    为什么不让平台答：平台的绑定知识库里没有、也不该有某个学生的课表 ✗
+    if course_qa.looks_like(query):
+        text = course_qa.answer(query)
+        if text:
+            print(f"[课表] {text}", flush=True)
+            return _finish(query, text, "NONE", "本地课表")
 
     # 3.86) 定闹钟 → 本地解析（2026-10-22 ✓ 一次性闹钟 ✓ 到点由板子播报 ✓）
     if alarm.looks_like_alarm(query):
