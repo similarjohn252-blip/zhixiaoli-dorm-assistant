@@ -250,7 +250,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
   <section class="card" id="quick">
     <h2><span class="idx">1</span>快速通道 <span class="badge ok">0~2 秒 · 不经过平台</span></h2>
     <div class="quick-grid" id="quickGrid"></div>
-    <div class="hint">这四句由服务端本地固定话术回答，平台挂了也照样秒回；点一下就走，结果出现在下面的「问一句」里。</div>
+    
   </section>
 
   <!-- 2 问一句 -->
@@ -281,7 +281,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
       <span class="vol-val" id="volText">-</span>
     </div>
     <div class="hint" id="volNote"></div>
-    <div class="hint">范围 10~21（服务端会把 5 抬到 10，防把板子调哑）。拖动松手即写，成功后用板子读回的真实值回填。板子状态每 6 秒自动刷一次，拔电几秒内变红点。</div>
+    
   </section>
 
   <!-- 4 课表 -->
@@ -291,14 +291,14 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
     <div class="block">
       <div class="block-t">① 上传课表</div>
       <input type="file" id="pdf" accept="application/pdf,.pdf">
-      <div class="hint">只支持 PDF，≤ 5 MB。选完立刻上传并显示「解析中」。<b>上传不保存</b>，校对完再点下面的保存。</div>
+      
       <div class="msg muted" id="uploadMsg"></div>
     </div>
 
     <div class="block">
       <div class="block-t">② 校对清单 <span class="cnt" id="schedCount"></span></div>
       <div id="warnBox"></div>
-      <div class="hint" style="margin-top:0;margin-bottom:8px;">PDF 解析大概九成准（教务处的表格有合并单元格，会漏课、多课）。课名 / 教室 / 节次 / 周次都能改，多出来的点 ✕ 删掉，漏掉的补一行。</div>
+      
       <div id="list"></div>
       <div class="row" style="margin-top:10px">
         <select id="addDay" style="min-height:38px;padding:6px 9px;font-size:14px;border:1px solid var(--line);border-radius:8px;font-family:inherit;background:#fff;color:var(--text);">
@@ -331,7 +331,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
           </select>
         </label>
       </div>
-      <div class="hint" style="margin-top:0;margin-bottom:6px;">作息时间表（每节开始时间）</div>
+      
       <div class="set-grid" id="periodGrid"></div>
       <div class="row" style="margin-top:12px">
         <button id="saveBtn">保存课表</button>
@@ -347,7 +347,6 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
     <div class="hint" id="remHint"></div>
   </section>
 
-
   <!-- 6 用户档案 -->
   <section class="card" id="profile">
     <h2><span class="idx">6</span>用户档案 <span class="badge" id="pfBadge">未解锁</span></h2>
@@ -360,9 +359,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
         <input type="password" id="pfSet2" placeholder="再输一遍" style="flex:1 1 180px">
         <button id="pfDoSet">设好了</button>
       </div>
-      <div class="hint">档案里有学号、手机号这类东西，所以要设一道门。
-        这个口令是你自己设的，设完一直有效（重启也不变）。只有在这台电脑上才能设或重置 ——
-        免得同一个 WiFi 下别人先打开网页就替你设了。</div>
+      
       <div class="msg muted" id="pfSetMsg"></div>
     </div>
 
@@ -374,25 +371,18 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
         <button class="ghost sm" id="pfLock">锁定</button>
         <button class="ghost sm" id="pfResetKey" style="display:none">重置口令</button>
       </div>
-      <div class="hint">口令是你自己设的。忘了就在服务端那台电脑上用
-        <b>http://127.0.0.1:5000/</b> 打开这个页面，点「重置口令」（不需要旧口令）。
-        口令只存在这个标签页里，关掉就没了。</div>
+      
       <div class="msg muted" id="pfMsg"></div>
     </div>
 
     <div class="block" id="pfRemoteBox" style="display:none">
       <div class="block-t">① 还没设口令</div>
-      <div class="hint">这台设备上没有档案口令，而且<b>只能在服务端那台电脑上设置</b> ——
-        不然同一个 WiFi 下别人先打开网页就替你设了。请到服务端电脑上，用
-        <b>http://127.0.0.1:5000/</b> 打开这个页面设置一次。</div>
+      
     </div>
 
     <div class="block">
       <div class="block-t">② 档案清单 <span class="cnt" id="pfCount"></span></div>
-      <div class="hint" style="margin-top:0;margin-bottom:8px;">
-        标「可用」的会用来做个性化回答（比如"你大二计算机、英语弱"）。
-        标「只存」的只在这台设备上留着，不写进回答、也不发给学校平台。
-        改完点保存，删掉点 ✕，一次一条。</div>
+      
       <div id="pfList"></div>
       <div class="row" style="margin-top:10px">
         <input type="text" id="pfNew" placeholder="例如：我大二，计算机专业" style="flex:1 1 240px">
@@ -438,7 +428,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
           自习 → 搜「<b>本科生教务管理系统</b>」→ 信息查询 → 查询空教室<br>
           查馆藏 → 搜「<b>馆藏查询</b>」
         </div>
-        <div class="hint">都在「知行理工」里搜，静态信息，不花时间。</div>
+        
       </div>
 
     </div>
@@ -1440,7 +1430,6 @@ el("early").addEventListener("change", function(ev){
   sched.early_minutes = Number(ev.target.value) || 20;
   scheduleReminderRefresh();
 });
-
 
 // ================= 用户档案（2026-10-22 新增）=================
 // 口令只存 sessionStorage：关标签页就没了，也不写进页面源码 ✓
