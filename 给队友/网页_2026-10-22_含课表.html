@@ -223,13 +223,207 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
     section.card > h2 { cursor: pointer; user-select: none; }
     section.card.collapsed > *:not(h2) { display: none; }
     .foldBtn {
-      float: right; margin-left: 10px; padding: 2px 10px;
-      font-size: 12px; line-height: 1.6; cursor: pointer;
-      color: #5b6b86; background: #eef2f8; border: 1px solid #d5deea;
-      border-radius: 999px;
+      /* 用 margin-left:auto 靠右 —— float 在 flex 容器里不生效 ✗ */
+      margin-left: auto; padding: 3px 12px; min-height: 0; height: 26px;
+      font-size: 12.5px; line-height: 1; cursor: pointer; flex: 0 0 auto;
+      color: #4d5c74; background: #f2f5fa; border: 1px solid #e2e8f2;
+      border-radius: 999px; box-shadow: none; font-weight: 600;
     }
+    .foldBtn:hover { background: #e9eff8; color: var(--brand); border-color: rgba(37,99,235,.28); }
+    .foldBtn:active { transform: none; }
     .foldBtn:hover { background: #e2e9f4; color: #2c3e57; }
     section.card.collapsed { padding-bottom: 12px; }
+  
+    /* ================= 视觉升级 2026-11-06 =================
+       只覆盖样式，不动结构；要回退就删掉这一整段。 */
+    :root{
+      --bg:#f4f6fb;
+      --card:#ffffff;
+      --line:#e6ebf4;
+      --text:#16202f;
+      --muted:#66748b;
+      --brand:#2563eb;
+      --brand-2:#4f8cff;
+      --brand-soft:#eef4ff;
+      --ok:#0a7d32;  --ok-bg:#e8f6ed;
+      --bad:#c0392b; --bad-bg:#fdecea;
+      --warn:#8a5a00;--warn-bg:#fff6e0;
+      --sh-sm:0 1px 2px rgba(16,24,40,.04);
+      --sh-md:0 2px 4px rgba(16,24,40,.04), 0 12px 28px -18px rgba(16,24,40,.18);
+      --sh-lg:0 4px 8px rgba(16,24,40,.05), 0 20px 40px -24px rgba(16,24,40,.22);
+    }
+    html{scroll-behavior:smooth;}
+    body{
+      background:
+        radial-gradient(900px 420px at 12% -8%, #e8f0ff 0%, rgba(232,240,255,0) 62%),
+        radial-gradient(760px 380px at 92% 0%, #eef2ff 0%, rgba(238,242,255,0) 60%),
+        var(--bg);
+      background-attachment:fixed;
+      letter-spacing:.1px;
+    }
+    .wrap{max-width:900px;padding:26px 16px 64px;}
+
+    /* ---------- 头部 ---------- */
+    .site{
+      border-radius:18px;border-color:rgba(37,99,235,.10);
+      box-shadow:var(--sh-md);
+      padding:22px 22px 16px;margin-bottom:18px;
+      background:linear-gradient(180deg,#ffffff 0%,#fbfcff 100%);
+      position:relative;overflow:hidden;
+    }
+    .site::before{
+      content:"";position:absolute;inset:0 0 auto 0;height:3px;
+      background:linear-gradient(90deg,var(--brand),var(--brand-2),#8b5cf6);
+    }
+    .site h1{font-size:24px;font-weight:750;letter-spacing:.3px;margin-bottom:6px;}
+    .site .sub{font-size:13.5px;color:var(--muted);margin-bottom:14px;}
+
+    .pill{padding:6px 13px;font-size:12.5px;box-shadow:var(--sh-sm);}
+    .pill.muted{background:#f2f5fa;border-color:#e8edf6;}
+    .dot{width:9px;height:9px;}
+
+    .nav{gap:8px;padding-top:14px;margin-top:14px;}
+    .nav a{
+      padding:6px 13px;border-radius:999px;background:#f3f6fc;color:#48566e;
+      border:1px solid transparent;transition:all .16s ease;
+    }
+    .nav a:hover{background:var(--brand-soft);color:var(--brand);border-color:rgba(37,99,235,.18);transform:translateY(-1px);}
+
+    /* ---------- 卡片 ---------- */
+    .card{
+      border-radius:16px;border-color:var(--line);
+      box-shadow:var(--sh-md);
+      padding:18px 20px;
+      margin-bottom:16px;
+      scroll-margin-top:16px;
+      transition:box-shadow .18s ease, transform .18s ease;
+    }
+    .card:hover{box-shadow:var(--sh-lg);}
+    .card h2{
+      font-size:17px;font-weight:700;letter-spacing:.2px;
+      gap:9px;margin-bottom:14px;
+      padding-bottom:11px;
+      border-bottom:1px solid #eef2f8;
+    }
+    .card.collapsed h2{margin-bottom:0;padding-bottom:0;border-bottom:0;}
+    .card h2 .idx{
+      width:24px;height:24px;border-radius:8px;font-size:12.5px;
+      background:linear-gradient(135deg,var(--brand),var(--brand-2));
+      color:#fff;box-shadow:0 4px 10px -4px rgba(37,99,235,.6);
+    }
+    .badge{padding:3px 9px;font-weight:650;letter-spacing:.2px;}
+
+    /* ---------- 按钮 ---------- */
+    button{
+      border-radius:11px;font-weight:600;letter-spacing:.2px;
+      background:linear-gradient(180deg,var(--brand-2),var(--brand));
+      box-shadow:0 1px 2px rgba(16,24,40,.10), 0 8px 18px -10px rgba(37,99,235,.7);
+      transition:transform .12s ease, filter .12s ease, box-shadow .18s ease;
+    }
+    button:hover{filter:brightness(1.05);transform:translateY(-1px);}
+    button:active{transform:translateY(1px);box-shadow:none;}
+    button.ghost{
+      background:#fff;color:#33415a;border:1px solid var(--line);
+      box-shadow:var(--sh-sm);
+    }
+    button.ghost:hover{background:#f7f9fe;color:var(--brand);border-color:rgba(37,99,235,.25);}
+    button.sm{font-size:13px;padding:7px 13px;min-height:36px;}
+    button:disabled{background:#e6ebf3;color:#9aa7bc;box-shadow:none;transform:none;}
+
+    /* 快速通道做成方块卡片 */
+    .quick-grid{gap:12px;}
+    .quick{
+      display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+      gap:3px;text-align:left;padding:13px 15px;min-height:64px;
+      background:#fff;color:var(--text);
+      border:1px solid var(--line);border-radius:13px;
+      box-shadow:var(--sh-sm);
+      font-size:14.5px;font-weight:650;
+    }
+    .quick:hover{
+      background:#fff;color:var(--brand);
+      border-color:rgba(37,99,235,.3);
+      box-shadow:0 10px 24px -16px rgba(37,99,235,.6);
+    }
+    .quick small{font-size:11.5px;font-weight:500;color:var(--muted);}
+
+    /* ---------- 输入 ---------- */
+    input[type=text],select{
+      border-radius:11px;border-color:var(--line);background:#fff;
+      transition:border-color .15s ease, box-shadow .15s ease;
+    }
+    input[type=text]:focus,select:focus{
+      outline:none;border-color:rgba(37,99,235,.55);
+      box-shadow:0 0 0 3.5px rgba(37,99,235,.12);
+    }
+    input[type=range]{accent-color:var(--brand);}
+    audio{width:100%;margin-top:10px;border-radius:10px;}
+
+    /* ---------- 标签/结果 ---------- */
+    .chip,.bus-chip{
+      border-radius:999px;padding:6px 13px;min-height:36px;
+      background:#fff;color:#3c4a63;border:1px solid var(--line);
+      box-shadow:var(--sh-sm);font-size:13px;font-weight:600;
+    }
+    .chip:hover,.bus-chip:hover{color:var(--brand);border-color:rgba(37,99,235,.3);background:#fbfdff;}
+    .chip.on,.bus-chip.on{
+      background:linear-gradient(180deg,var(--brand-2),var(--brand));color:#fff;
+      border-color:transparent;
+    }
+    .reply{
+      background:linear-gradient(180deg,#fbfcff,#f6f9ff);
+      border:1px solid #e5ecfa;border-left:3px solid var(--brand);
+      border-radius:12px;padding:14px 16px;font-size:15px;line-height:1.75;
+      box-shadow:var(--sh-sm);
+    }
+    .reply.warn{border-left-color:#e9a23b;background:#fffbf3;border-color:#f2e2c4;}
+    .reply.bad{border-left-color:#e05c4a;background:#fff7f6;border-color:#f6d9d5;}
+
+    /* ---------- 列表 ---------- */
+    .rem{padding:11px 2px;gap:14px;}
+    .rem .t{font-weight:600;}
+    .rem.alarm .t{color:var(--brand);}
+    .crow{padding:10px 12px;transition:background .15s ease;}
+    .crow:hover{background:#fafcff;}
+    .dayhead{
+      background:linear-gradient(180deg,#f7f9fd,#f2f6fc);
+      border-radius:9px;margin-top:10px;color:#31405a;
+    }
+    .block-t{font-size:14.5px;letter-spacing:.2px;}
+    .info{border-radius:13px;border-color:var(--line);box-shadow:var(--sh-sm);}
+    .info h3{font-size:14.5px;}
+    .info .kv{line-height:2;}
+    .warnbar{border-radius:11px;}
+    .empty{padding:14px 2px;}
+
+    /* ---------- 页脚 ---------- */
+    footer{border-top:1px dashed var(--line);padding-top:16px;margin-top:28px;}
+
+    /* ---------- 交互细节 ---------- */
+    :focus-visible{outline:2px solid rgba(37,99,235,.6);outline-offset:2px;}
+    @media (prefers-reduced-motion: reduce){
+      *{transition:none !important;animation:none !important;scroll-behavior:auto !important;}
+    }
+
+    /* 原生控件（audio 尤其）在内核里有最小宽度，手机上会把卡片撑出屏幕 ✗ */
+    audio,input,select,textarea,button{max-width:100%;}
+    audio,audio::-webkit-media-controls-enclosure{min-width:0;width:100%;}
+    .card,.site,.wrap{max-width:100%;}
+
+    /* ---------- 手机 ---------- */
+    @media (max-width:600px){
+      .wrap{padding:16px 11px 48px;}
+      .site h1{font-size:20.5px;}
+      .card{padding:15px 14px;border-radius:14px;}
+      .card h2{font-size:15.5px;}
+      .quick-grid{grid-template-columns:repeat(2,1fr);gap:9px;}
+      .quick{min-height:58px;padding:11px 12px;}
+      .set-grid{grid-template-columns:repeat(2,1fr);}
+      .info-grid{grid-template-columns:1fr;}
+      .reply{padding:12px 13px;font-size:14.5px;}
+      .nav a{padding:5px 11px;font-size:12.5px;}
+      html,body{overflow-x:hidden;}
+    }
   </style>
 </head>
 <body>
@@ -447,8 +641,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
   </section>
 
   <footer>
-    本页只调用免 token 的接口，不持有任何密钥；不显示尚未实现的功能（不编工单号、不写「灯已亮」）。<br>
-    音频由点击触发；页面与接口请用同一个 http 源打开（别双击 html 文件）。
+  智小理 · 宿舍事务助手 · 管理服务智能体赛道
   </footer>
 
 </div>
