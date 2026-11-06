@@ -476,6 +476,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:22px;line-
     <nav class="nav">
       <a href="#quick">快速通道</a>
       <a href="#chat">问一句</a>
+    <a href="https://aiagent.cqut.edu.cn:31134/chat/RL5430nL8s3KuwpF" target="_blank" rel="noopener">平台对话 ↗</a>
       <a href="#board">板子与音量</a>
       <a href="#schedule">课表与提醒</a>
       <a href="#reminders">提醒预览</a>
@@ -1966,5 +1967,63 @@ setInterval(function(){ if (!document.hidden) loadBoard(); }, 6000);
   }
 })();
 </script>
+
+  <!-- ===== 平台对话组件（2026-11-06 用户提供）=====
+       ⚠️ embed.min.js 来自自签名证书的域名：浏览器会拦，气泡不出现，
+          而且不给用户任何提示。用之前先在同一个浏览器里打开一次
+          https://aiagent.cqut.edu.cn:31134/chat/… 点「继续前往」接受证书。 -->
+  <script>
+   window.agentChatbotConfig = {
+    token: 'ByEtD0V8Gk3oqg4o',
+    baseUrl: 'https://aiagent.cqut.edu.cn:31134'
+   }
+  </script>
+  <script
+   src="https://aiagent.cqut.edu.cn:31134/embed.min.js"
+   id="ByEtD0V8Gk3oqg4o"
+   defer>
+  </script>
+  <style>
+    #agent-chatbot-bubble-button {
+      background-color: #1C64F2 !important;
+    }
+    #agent-chatbot-bubble-window {
+      width: 24rem !important;
+      height: 40rem !important;
+    }
+    /* 手机上别超出屏幕 */
+    @media (max-width: 600px) {
+      #agent-chatbot-bubble-window {
+        width: calc(100vw - 24px) !important;
+        height: calc(100vh - 120px) !important;
+      }
+    }
+  </style>
+
+  <!-- ===== 兜底按钮（2026-11-06）=====
+       平台气泡靠 embed.min.js 注入，而那个域名的证书是自签名的：
+       浏览器没接受过证书时脚本会被静默拦掉，气泡不出现、也不报错 ✗。
+       这里等 3 秒，气泡还是没出来就放一个自己的按钮，跳到平台对话页。 -->
+  <script>
+  setTimeout(function () {
+    if (document.getElementById('agent-chatbot-bubble-button')) { return; }   // 气泡出来了，不用兜底
+    if (document.getElementById('fallbackChat')) { return; }
+    var a = document.createElement('a');
+    a.id = 'fallbackChat';
+    a.href = 'https://aiagent.cqut.edu.cn:31134/chat/RL5430nL8s3KuwpF';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '平台对话';
+    a.title = '平台对话组件没能加载（多半是证书未接受），点这里直接打开平台页面';
+    a.style.cssText = [
+      'position:fixed', 'right:20px', 'bottom:20px', 'z-index:99999',
+      'padding:13px 20px', 'border-radius:999px',
+      'background:linear-gradient(135deg,#4f8cff,#2563eb)', 'color:#fff',
+      'font:600 14px/1 system-ui,-apple-system,"Microsoft YaHei",sans-serif',
+      'text-decoration:none', 'box-shadow:0 12px 28px -12px rgba(37,99,235,.9)'
+    ].join(';');
+    document.body.appendChild(a);
+  }, 3000);
+  </script>
 </body>
 </html>
